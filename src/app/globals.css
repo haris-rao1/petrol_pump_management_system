@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #eef4f9;
+  --foreground: #0f172a;
+  --panel: #ffffff;
+  --panel-muted: #f7fafc;
+  --border: rgba(15, 23, 42, 0.12);
+  --brand: #14532d;
+  --brand-accent: #f59e0b;
+  --brand-soft: rgba(20, 83, 45, 0.12);
+}
+
+.dark {
+  --background: #07111d;
+  --foreground: #e2e8f0;
+  --panel: #0b1726;
+  --panel-muted: #122033;
+  --border: rgba(148, 163, 184, 0.16);
+  --brand: #22c55e;
+  --brand-accent: #fbbf24;
+  --brand-soft: rgba(34, 197, 94, 0.15);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(245, 158, 11, 0.09), transparent 24%),
+    radial-gradient(circle at right top, rgba(20, 83, 45, 0.09), transparent 28%),
+    linear-gradient(180deg, var(--background), var(--background));
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+* {
+  border-color: var(--border);
+}
+
+::selection {
+  background: rgba(245, 158, 11, 0.28);
+}
+
+.glass-panel {
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
