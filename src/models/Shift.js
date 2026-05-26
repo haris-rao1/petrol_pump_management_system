@@ -3,6 +3,7 @@ import { getModel } from "@/models/helpers";
 
 const shiftSchema = new mongoose.Schema(
   {
+    pumpId: { type: mongoose.Schema.Types.ObjectId, ref: "Pump", default: null, index: true },
     shiftName: { type: String, required: true, trim: true },
     operatorName: { type: String, required: true, trim: true },
     startTime: { type: Date, required: true },

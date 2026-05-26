@@ -8,6 +8,6 @@ export async function GET(request) {
     return failure("Unauthorized", 401);
   }
 
-  const summary = await getDashboardSummary();
+  const summary = await getDashboardSummary(user.activePumpId);
   return success(summary);
 }

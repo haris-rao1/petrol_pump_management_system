@@ -5,6 +5,7 @@ import FuelSale from "@/models/FuelSale";
 import Tank from "@/models/Tank";
 import Expense from "@/models/Expense";
 import Customer from "@/models/Customer";
+import { toPumpObjectId } from "@/lib/pump";
 
 function dateKey(date, pattern = "yyyy-MM-dd") {
   return format(date, pattern);
@@ -69,8 +70,9 @@ async function sumRange(model, field, startDate, endDate, extraQuery = {}) {
   return Number(result[0]?.total || 0);
 }
 
-export async function getDashboardSummary() {
+export async function getDashboardSummary(pumpId = null) {
   await connectMongo();
+  const pumpObjectId = toPumpObjectId(pumpId);
 
   const todayStart = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
@@ -79,30 +81,30 @@ export async function getDashboardSummary() {
   const chartStart = subDays(todayStart, 6);
 
   const [petrolTank, dieselTank, todaySales, monthSales, todayPurchases, todayExpenses, monthPurchases, monthExpenses, creditSummary] = await Promise.all([
-    Tank.findOne({ fuelType: "Petrol" }).lean(),
-    Tank.findOne({ fuelType: "Diesel" }).lean(),
-    sumRange(FuelSale, "totalSaleAmount", todayStart, todayEnd),
-    sumRange(FuelSale, "totalSaleAmount", monthStart, monthEnd),
-    sumRange(FuelPurchase, "totalAmount", todayStart, todayEnd),
-    sumRange(Expense, "amount", todayStart, todayEnd),
-    sumRange(FuelPurchase, "totalAmount", monthStart, monthEnd),
-    sumRange(Expense, "amount", monthStart, monthEnd),
-    Customer.aggregate([{ $group: { _id: null, total: { $sum: "$pendingBalance" } } }]),
+    Tank.findOne(pumpObjectId ? { fuelType: "Petrol", pumpId: pumpObjectId } : { fuelType: "Petrol" }).lean(),
+    Tank.findOne(pumpObjectId ? { fuelType: "Diesel", pumpId: pumpObjectId } : { fuelType: "Diesel" }).lean(),
+    sumRange(FuelSale, "totalSaleAmount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumRange(FuelSale, "totalSaleAmount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumRange(FuelPurchase, "totalAmount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumRange(Expense, "amount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumRange(FuelPurchase, "totalAmount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumRange(Expense, "amount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    Customer.aggregate([{ $match: pumpObjectId ? { pumpId: pumpObjectId } : {} }, { $group: { _id: null, total: { $sum: "$pendingBalance" } } }]),
   ]);
 
   const [dailySales, monthlySales, dailyExpenses, monthlyExpenses, fuelConsumption, recentPurchases, recentExpenses, recentSales] = await Promise.all([
-    sumByDate(FuelSale, "totalSaleAmount", chartStart, todayStart),
-    sumByMonth(FuelSale, "totalSaleAmount", 6),
-    sumByDate(Expense, "amount", chartStart, todayStart),
-    sumByMonth(Expense, "amount", 6),
+    sumByDate(FuelSale, "totalSaleAmount", chartStart, todayStart, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumByMonth(FuelSale, "totalSaleAmount", 6, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumByDate(Expense, "amount", chartStart, todayStart, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumByMonth(Expense, "amount", 6, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     FuelSale.aggregate([
-      { $match: { date: { $gte: monthStart, $lte: monthEnd } } },
+      { $match: pumpObjectId ? { date: { $gte: monthStart, $lte: monthEnd }, pumpId: pumpObjectId } : { date: { $gte: monthStart, $lte: monthEnd } } },
       { $group: { _id: "$fuelType", total: { $sum: "$soldLiters" } } },
       { $sort: { _id: 1 } },
     ]),
-    FuelPurchase.find().sort({ date: -1 }).limit(5).lean(),
-    Expense.find().sort({ date: -1 }).limit(5).lean(),
-    FuelSale.find().sort({ date: -1 }).limit(5).lean(),
+    FuelPurchase.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).sort({ date: -1 }).limit(5).lean(),
+    Expense.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).sort({ date: -1 }).limit(5).lean(),
+    FuelSale.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).sort({ date: -1 }).limit(5).lean(),
   ]);
 
   const todayProfit = todaySales - todayPurchases - todayExpenses;

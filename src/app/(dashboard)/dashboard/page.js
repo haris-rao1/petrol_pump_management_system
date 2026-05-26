@@ -3,9 +3,11 @@ import { getDashboardSummary } from "@/services/dashboard-service";
 import { StatCard } from "@/components/stat-card";
 import { DashboardCharts } from "@/components/dashboard-charts";
 import { formatCurrency, formatDate, formatRawNumber } from "@/utils/format";
+import { getCurrentUser } from "@/lib/auth";
 
 export default async function DashboardPage() {
-  const summary = await getDashboardSummary();
+  const user = await getCurrentUser();
+  const summary = await getDashboardSummary(user?.activePumpId || null);
 
   return (
     <div className="space-y-5">

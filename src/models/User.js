@@ -8,6 +8,8 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true, select: false },
     role: { type: String, enum: Object.values(ROLES), default: ROLES.OPERATOR },
+    pumpId: { type: mongoose.Schema.Types.ObjectId, ref: "Pump", default: null },
+    activePumpId: { type: mongoose.Schema.Types.ObjectId, ref: "Pump", default: null },
     status: { type: String, enum: STATUS_OPTIONS, default: "Active" },
     lastLoginAt: { type: Date },
   },

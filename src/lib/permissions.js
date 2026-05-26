@@ -1,5 +1,9 @@
 import { ROLES } from "@/lib/constants";
 
+function normalizeRole(userRole) {
+  return String(userRole || "").trim().toLowerCase();
+}
+
 export function canAccessRole(userRole, allowedRoles = []) {
   if (!allowedRoles.length) {
     return true;
@@ -13,9 +17,9 @@ export function isOperator(userRole) {
 }
 
 export function isManager(userRole) {
-  return userRole === ROLES.MANAGER;
+  return normalizeRole(userRole) === ROLES.MANAGER.toLowerCase();
 }
 
 export function isAdmin(userRole) {
-  return userRole === ROLES.ADMIN;
+  return normalizeRole(userRole) === ROLES.ADMIN.toLowerCase();
 }

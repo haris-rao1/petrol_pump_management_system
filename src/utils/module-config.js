@@ -4,6 +4,28 @@ import { formatCurrency, formatDate, formatNumber, formatRawNumber } from "@/uti
 const dateField = { type: "date" };
 
 export const moduleConfigs = {
+  pumps: {
+    title: "Pump Management",
+    description: "Create and manage each petrol pump separately.",
+    endpoint: "pumps",
+    searchFields: ["name", "code", "address"],
+    filters: [
+      { name: "status", label: "Status", type: "select", options: ["", "Active", "Inactive"] },
+    ],
+    fields: [
+      { name: "name", label: "Pump Name", type: "text" },
+      { name: "code", label: "Pump Code", type: "text" },
+      { name: "address", label: "Address", type: "textarea" },
+      { name: "status", label: "Status", type: "select", options: ["Active", "Inactive"] },
+      { name: "notes", label: "Notes", type: "textarea" },
+    ],
+    columns: [
+      { key: "name", label: "Pump Name" },
+      { key: "code", label: "Code" },
+      { key: "status", label: "Status" },
+      { key: "address", label: "Address" },
+    ],
+  },
   "fuel-purchases": {
     title: "Fuel Purchase Management",
     description: "Record supplier deliveries and update tank stock automatically.",
@@ -264,12 +286,14 @@ export const moduleConfigs = {
       { name: "name", label: "Name", type: "text" },
       { name: "email", label: "Email", type: "email" },
       { name: "password", label: "Password", type: "password" },
+      { name: "pumpId", label: "Pump", type: "select", optionsSource: "pumps" },
       { name: "role", label: "Role", type: "select", options: ROLE_OPTIONS },
       { name: "status", label: "Status", type: "select", options: STATUS_OPTIONS },
     ],
     columns: [
       { key: "name", label: "Name" },
       { key: "email", label: "Email" },
+      { key: "pumpId", label: "Pump" },
       { key: "role", label: "Role" },
       { key: "status", label: "Status" },
     ],

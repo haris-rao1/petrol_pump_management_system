@@ -17,15 +17,19 @@ function toSerializableUser(user) {
     email: user.email,
     role: user.role,
     status: user.status,
+    pumpId: user.pumpId ? user.pumpId.toString() : null,
+    activePumpId: user.activePumpId ? user.activePumpId.toString() : null,
   };
 }
 
-export async function issueAuthCookie(user) {
+export async function issueAuthCookie(user, activePumpId = null) {
   return signAuthToken({
     sub: user._id.toString(),
     email: user.email,
     role: user.role,
     name: user.name,
+    pumpId: user.pumpId ? user.pumpId.toString() : null,
+    activePumpId: activePumpId ? activePumpId.toString() : user.activePumpId ? user.activePumpId.toString() : user.pumpId ? user.pumpId.toString() : null,
   });
 }
 
@@ -60,8 +64,15 @@ export async function getCurrentUser() {
   try {
     const payload = await verifyAuthToken(token);
     await connectMongo();
-    const user = await User.findById(payload.sub).select("name email role status").lean();
-    return toSerializableUser(user);
+    const user = await User.findById(payload.sub).select("name email role status pumpId activePumpId").lean();
+    if (!user) {
+      return null;
+    }
+
+    return {
+      ...toSerializableUser(user),
+      activePumpId: payload.activePumpId || user.activePumpId?.toString?.() || user.pumpId?.toString?.() || null,
+    };
   } catch {
     return null;
   }
@@ -77,8 +88,15 @@ export async function authenticateRequest(request) {
   try {
     const payload = await verifyAuthToken(token);
     await connectMongo();
-    const user = await User.findById(payload.sub).select("name email role status").lean();
-    return toSerializableUser(user);
+    const user = await User.findById(payload.sub).select("name email role status pumpId activePumpId").lean();
+    if (!user) {
+      return null;
+    }
+
+    return {
+      ...toSerializableUser(user),
+      activePumpId: payload.activePumpId || user.activePumpId?.toString?.() || user.pumpId?.toString?.() || null,
+    };
   } catch {
     return null;
   }

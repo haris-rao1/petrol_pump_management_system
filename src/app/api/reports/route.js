@@ -15,7 +15,7 @@ export async function GET(request) {
     fuelType: searchParams.get("fuelType"),
     employee: searchParams.get("employee"),
     shift: searchParams.get("shift"),
-  });
+  }, user.activePumpId);
 
   return success(report);
 }

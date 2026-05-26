@@ -5,21 +5,22 @@ import { connectMongo } from "@/lib/mongodb";
 import { issueAuthCookie, setAuthCookie } from "@/lib/auth";
 import { failure, success } from "@/lib/response";
 import { DEFAULT_ADMIN } from "@/lib/constants";
-import { ensureDefaultAdmin } from "@/services/bootstrap-service";
+import { isAdmin } from "@/lib/permissions";
+import { ensureDefaultAdmin, ensureDefaultPump } from "@/services/bootstrap-service";
 
 export async function POST(request) {
   try {
     const body = await request.json();
 
     await connectMongo();
-console.log(body.email, body.password);
     if (body.email === DEFAULT_ADMIN.email && body.password === DEFAULT_ADMIN.password) {
-        console.log("Default admin login attempt detected");
       await ensureDefaultAdmin();
     }
 
-    const user = await User.findOne({ email: body.email }).select("+password");
+    await ensureDefaultPump();
 
+    const user = await User.findOne({ email: body.email }).select("+password pumpId");
+    console.log("Login attempt for email:", body.email,user);
     if (!user) {
       return failure("Invalid email or password", 401);
     }
@@ -30,7 +31,23 @@ console.log(body.email, body.password);
       return failure("Invalid email or password", 401);
     }
 
+    const isDefaultAdminCredentials = body.email === DEFAULT_ADMIN.email && body.password === DEFAULT_ADMIN.password;
+    const adminLogin = isAdmin(user.role) || user.email === DEFAULT_ADMIN.email || isDefaultAdminCredentials;
+
+    if (isDefaultAdminCredentials) {
+      user.role = DEFAULT_ADMIN.role;
+      user.pumpId = null;
+      user.activePumpId = null;
+    }
+
+    if (!adminLogin && !user.pumpId) {
+      return failure("This user is not assigned to any petrol pump", 400);
+    }
+
+    const activePumpId = adminLogin ? body.pumpId || null : user.pumpId || null;
+
     user.lastLoginAt = new Date();
+    user.activePumpId = activePumpId || user.pumpId || null;
     await user.save();
 
     const response = NextResponse.json(success({
@@ -40,10 +57,12 @@ console.log(body.email, body.password);
         email: user.email,
         role: user.role,
         status: user.status,
+        pumpId: user.pumpId ? user.pumpId.toString() : null,
+        activePumpId: activePumpId ? activePumpId.toString() : null,
       },
     }));
 
-    const token = await issueAuthCookie(user);
+    const token = await issueAuthCookie(user, activePumpId);
     setAuthCookie(response, token);
     return response;
   } catch (error) {

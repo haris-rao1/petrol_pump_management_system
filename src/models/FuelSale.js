@@ -4,6 +4,7 @@ import { FUEL_TYPES } from "@/lib/constants";
 
 const fuelSaleSchema = new mongoose.Schema(
   {
+    pumpId: { type: mongoose.Schema.Types.ObjectId, ref: "Pump", default: null, index: true },
     shiftName: { type: String, required: true, trim: true },
     operatorName: { type: String, required: true, trim: true },
     nozzle: { type: mongoose.Schema.Types.ObjectId, ref: "Nozzle", required: false },

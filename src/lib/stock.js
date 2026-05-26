@@ -3,9 +3,9 @@ import Nozzle from "@/models/Nozzle";
 import StockAdjustment from "@/models/StockAdjustment";
 import { connectMongo } from "@/lib/mongodb";
 
-export async function ensureTank(fuelType, session) {
+export async function ensureTank(fuelType, session, pumpId = null) {
   await connectMongo();
-  const query = Tank.findOne({ fuelType });
+  const query = Tank.findOne({ fuelType, pumpId: pumpId || null });
   if (session) query.session(session);
   const tank = await query;
 
@@ -13,7 +13,7 @@ export async function ensureTank(fuelType, session) {
     return tank;
   }
 
-  const newTank = new Tank({ fuelType, currentStock: 0, capacityLiters: 0, lowStockThreshold: 5000 });
+  const newTank = new Tank({ fuelType, pumpId: pumpId || null, currentStock: 0, capacityLiters: 0, lowStockThreshold: 5000 });
   await newTank.save(session ? { session } : {});
   return newTank;
 }
@@ -26,17 +26,17 @@ function ensureFiniteNumber(value, name = "value") {
   return n;
 }
 
-export async function increaseTankStock(fuelType, quantityLiters, session) {
+export async function increaseTankStock(fuelType, quantityLiters, session, pumpId = null) {
   const qty = ensureFiniteNumber(quantityLiters, "quantityLiters");
-  const tank = await ensureTank(fuelType, session);
+  const tank = await ensureTank(fuelType, session, pumpId);
   tank.currentStock = Number(tank.currentStock || 0) + qty;
   await tank.save(session ? { session } : {});
   return tank;
 }
 
-export async function decreaseTankStock(fuelType, quantityLiters, session) {
+export async function decreaseTankStock(fuelType, quantityLiters, session, pumpId = null) {
   const qty = ensureFiniteNumber(quantityLiters, "quantityLiters");
-  const tank = await ensureTank(fuelType, session);
+  const tank = await ensureTank(fuelType, session, pumpId);
   const remaining = Number(tank.currentStock || 0) - qty;
 
   if (remaining < 0) {
@@ -48,8 +48,8 @@ export async function decreaseTankStock(fuelType, quantityLiters, session) {
   return tank;
 }
 
-export async function applyStockAdjustment(input, userId, session) {
-  const tank = await ensureTank(input.fuelType, session);
+export async function applyStockAdjustment(input, userId, session, pumpId = null) {
+  const tank = await ensureTank(input.fuelType, session, pumpId);
   const adjustmentQuantity = ensureFiniteNumber(input.adjustmentQuantity, "adjustmentQuantity");
   const nextStock = Number(tank.currentStock || 0) + adjustmentQuantity;
 
@@ -60,17 +60,17 @@ export async function applyStockAdjustment(input, userId, session) {
   tank.currentStock = nextStock;
   await tank.save(session ? { session } : {});
 
-  const record = new StockAdjustment({ ...input, createdBy: userId });
+  const record = new StockAdjustment({ ...input, createdBy: userId, pumpId: pumpId || null });
   await record.save(session ? { session } : {});
   return { tank, record };
 }
 
-export async function updateNozzleReading(nozzleId, meterReading, session) {
+export async function updateNozzleReading(nozzleId, meterReading, session, pumpId = null) {
   if (!nozzleId) {
     return null;
   }
 
-  const query = Nozzle.findById(nozzleId);
+  const query = Nozzle.findOne({ _id: nozzleId, pumpId: pumpId || null });
   if (session) query.session(session);
   const nozzle = await query;
   if (!nozzle) {

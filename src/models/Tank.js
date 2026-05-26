@@ -4,7 +4,8 @@ import { FUEL_TYPES } from "@/lib/constants";
 
 const tankSchema = new mongoose.Schema(
   {
-    fuelType: { type: String, enum: FUEL_TYPES, unique: true, required: true },
+    pumpId: { type: mongoose.Schema.Types.ObjectId, ref: "Pump", default: null, index: true },
+    fuelType: { type: String, enum: FUEL_TYPES, required: true },
     currentStock: { type: Number, default: 0 },
     capacityLiters: { type: Number, default: 0 },
     lowStockThreshold: { type: Number, default: 5000 },
@@ -12,5 +13,7 @@ const tankSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+tankSchema.index({ pumpId: 1, fuelType: 1 }, { unique: true });
 
 export default getModel("Tank", tankSchema);

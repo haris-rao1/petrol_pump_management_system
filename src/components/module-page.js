@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { jsPDF } from "jspdf";
@@ -18,6 +18,7 @@ export function ModulePage({ resource }) {
   const config = getModuleConfig(resource) || moduleConfigs[resource];
   const schema = moduleSchemas[resource];
   const defaults = resourceFormDefaults[resource];
+  const pumpScopedResources = new Set(["fuel-purchases", "fuel-sales", "tanks", "nozzles", "shifts", "expenses", "customers", "payments", "employees", "stock-adjustments"]);
 
   const [records, setRecords] = useState([]);
   const [total, setTotal] = useState(0);
@@ -30,6 +31,8 @@ export function ModulePage({ resource }) {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
+  const [dynamicOptions, setDynamicOptions] = useState({});
+  const [currentUser, setCurrentUser] = useState(null);
 
   const form = useForm({
     resolver: zodResolver(schema),
@@ -62,6 +65,46 @@ export function ModulePage({ resource }) {
     }
   }
 
+  async function fetchDynamicOptions() {
+    const optionFields = (config?.fields || []).filter((field) => field.optionsSource);
+    if (!optionFields.length) {
+      return;
+    }
+
+    const nextOptions = {};
+
+    await Promise.all(
+      optionFields.map(async (field) => {
+        if (field.optionsSource === "pumps") {
+          const response = await fetch("/api/pumps?page=1&limit=1000");
+          const payload = await response.json();
+          nextOptions[field.name] = (payload.data?.items || []).map((item) => ({
+            label: `${item.name} (${item.code})`,
+            value: item._id,
+          }));
+        }
+      }),
+    );
+
+    setDynamicOptions(nextOptions);
+  }
+
+  async function fetchCurrentUser() {
+    try {
+      const response = await fetch("/api/auth/me");
+      const payload = await response.json();
+      if (response.ok) {
+        const user = payload.data?.user || null;
+        setCurrentUser(user);
+        return user;
+      }
+    } catch {
+      setCurrentUser(null);
+    }
+
+    return null;
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void fetchRecords();
@@ -70,6 +113,16 @@ export function ModulePage({ resource }) {
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resource, page, search, JSON.stringify(filters)]);
+
+  useEffect(() => {
+    void fetchDynamicOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resource]);
+
+  useEffect(() => {
+    void fetchCurrentUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function openCreateModal() {
     setEditing(null);
@@ -88,10 +141,13 @@ export function ModulePage({ resource }) {
     try {
       const method = editing ? "PATCH" : "POST";
       const url = editing ? `/api/${config.endpoint}?id=${editing._id}` : `/api/${config.endpoint}`;
+      const resolvedUser = currentUser || (await fetchCurrentUser());
+      const selectedPumpId = resolvedUser?.activePumpId || resolvedUser?.pumpId || "";
+      const body = pumpScopedResources.has(resource) && selectedPumpId ? { ...values, pumpId: selectedPumpId } : values;
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify(body),
       });
       const payload = await response.json();
 
@@ -117,7 +173,10 @@ export function ModulePage({ resource }) {
     }
 
     try {
-      const response = await fetch(`/api/${config.endpoint}?id=${record._id}`, { method: "DELETE" });
+      const resolvedUser = currentUser || (await fetchCurrentUser());
+      const selectedPumpId = resolvedUser?.activePumpId || resolvedUser?.pumpId || "";
+      const pumpQuery = pumpScopedResources.has(resource) && selectedPumpId ? `&pumpId=${encodeURIComponent(selectedPumpId)}` : "";
+      const response = await fetch(`/api/${config.endpoint}?id=${record._id}${pumpQuery}`, { method: "DELETE" });
       const payload = await response.json();
 
       if (!response.ok) {
@@ -292,7 +351,13 @@ export function ModulePage({ resource }) {
 
             <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 md:grid-cols-2">
               {config.fields.map((field) => (
-                <FormField key={field.name} field={field} register={form.register} error={form.formState.errors[field.name]} />
+                <FormField
+                  key={field.name}
+                  field={field}
+                  options={field.optionsSource ? dynamicOptions[field.name] || [] : field.options || []}
+                  register={form.register}
+                  error={form.formState.errors[field.name]}
+                />
               ))}
 
               <div className="md:col-span-2 flex justify-end gap-3 pt-2">
@@ -309,7 +374,7 @@ export function ModulePage({ resource }) {
   );
 }
 
-function FormField({ field, register, error }) {
+function FormField({ field, options, register, error }) {
   const base = "w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[var(--brand)] dark:border-white/10 dark:bg-white/5";
 
   return (
@@ -317,8 +382,8 @@ function FormField({ field, register, error }) {
       <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{field.label}</span>
       {field.type === "select" ? (
         <select className={base} {...register(field.name)}>
-          {(field.options || []).map((option) => (
-            <option key={option} value={option}>{option || field.label}</option>
+          {options.map((option) => (
+            <option key={option.value || option} value={option.value || option}>{option.label || option || field.label}</option>
           ))}
         </select>
       ) : field.type === "textarea" ? (
@@ -342,7 +407,17 @@ function mapRecordToForm(record, defaults) {
       output[key] = new Date(value).toISOString().slice(0, 10);
       return;
     }
-    output[key] = value;
+    // If a field (like `pumpId`) was populated with an object, normalize
+    // it to the string id so form selects bind correctly.
+    if (typeof value === "object") {
+      if (value._id) {
+        output[key] = String(value._id);
+      } else {
+        output[key] = value;
+      }
+    } else {
+      output[key] = value;
+    }
   });
   return output;
 }
@@ -354,6 +429,9 @@ function renderCell(record, column) {
   }
   if (column.key === "customerName") {
     return record.customerName || record.customer?.name || record.customer || "-";
+  }
+  if (column.key === "pumpId") {
+    return record.pumpId?.name || record.pumpId?.code || record.pumpId || "-";
   }
   if (column.key === "updatedAt") {
     return formatDate(record.updatedAt);
@@ -367,6 +445,9 @@ function formatExportValue(record, column) {
   }
   if (column.key === "customerName") {
     return record.customerName || record.customer?.name || record.customer || "-";
+  }
+  if (column.key === "pumpId") {
+    return record.pumpId?.name || record.pumpId?.code || record.pumpId || "-";
   }
   if (column.key === "updatedAt") {
     return formatDate(record.updatedAt);

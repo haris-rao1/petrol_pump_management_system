@@ -3,9 +3,11 @@ import { connectMongo } from "@/lib/mongodb";
 import FuelSale from "@/models/FuelSale";
 import FuelPurchase from "@/models/FuelPurchase";
 import Expense from "@/models/Expense";
+import { applyPumpScope, toPumpObjectId } from "@/lib/pump";
 
-export async function getReportData(filters = {}) {
+export async function getReportData(filters = {}, pumpId = null) {
   await connectMongo();
+  const pumpObjectId = toPumpObjectId(pumpId);
 
   const startDate = filters.startDate ? startOfDay(new Date(filters.startDate)) : startOfDay(new Date());
   const endDate = filters.endDate ? endOfDay(new Date(filters.endDate)) : endOfDay(new Date());
@@ -13,6 +15,8 @@ export async function getReportData(filters = {}) {
   const saleQuery = {
     date: { $gte: startDate, $lte: endDate },
   };
+
+  Object.assign(saleQuery, pumpObjectId ? { pumpId: pumpObjectId } : {});
 
   if (filters.fuelType) {
     saleQuery.fuelType = filters.fuelType;
@@ -28,8 +32,8 @@ export async function getReportData(filters = {}) {
 
   const [sales, purchases, expenses] = await Promise.all([
     FuelSale.find(saleQuery).sort({ date: -1 }).lean(),
-    FuelPurchase.find({ date: { $gte: startDate, $lte: endDate } }).sort({ date: -1 }).lean(),
-    Expense.find({ date: { $gte: startDate, $lte: endDate } }).sort({ date: -1 }).lean(),
+    FuelPurchase.find(applyPumpScope({ date: { $gte: startDate, $lte: endDate } }, pumpObjectId)).sort({ date: -1 }).lean(),
+    Expense.find(applyPumpScope({ date: { $gte: startDate, $lte: endDate } }, pumpObjectId)).sort({ date: -1 }).lean(),
   ]);
 
   const totals = {

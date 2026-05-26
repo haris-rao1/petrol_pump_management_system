@@ -4,6 +4,7 @@ import { ROLES, STATUS_OPTIONS } from "@/lib/constants";
 
 const employeeSchema = new mongoose.Schema(
   {
+    pumpId: { type: mongoose.Schema.Types.ObjectId, ref: "Pump", default: null, index: true },
     name: { type: String, required: true, trim: true },
     cnic: { type: String, required: true, trim: true },
     phone: { type: String, required: true, trim: true },

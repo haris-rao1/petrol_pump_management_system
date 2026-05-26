@@ -42,6 +42,18 @@ export function AppShell({ user, children }) {
             </div>
           </div>
 
+          <div className="mt-4 rounded-3xl bg-(--panel-muted) p-4 dark:bg-white/5">
+            <p className="text-xs uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Pump Context</p>
+            <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
+              {user?.activePumpId ? "Pump selected" : user?.role === "Admin" ? "Select a pump" : "Assigned pump"}
+            </p>
+            {user?.role === "Admin" && !user?.activePumpId ? (
+              <Link href="/settings/pumps" className="mt-3 inline-flex rounded-2xl bg-(--brand) px-4 py-2 text-xs font-semibold text-white">
+                Open Pumps
+              </Link>
+            ) : null}
+          </div>
+
           <nav className="mt-5 space-y-1 overflow-y-auto pr-1 scrollbar-thin">
             {visibleNav.map((item) => {
               const active = pathname === item.href || pathname.startsWith(`${item.href}/`);

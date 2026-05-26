@@ -9,6 +9,13 @@ export const loginSchema = z.object({
 const sharedDate = z.string().min(1, "Date is required");
 
 export const moduleSchemas = {
+  pumps: z.object({
+    name: z.string().min(2, "Pump name is required"),
+    code: z.string().min(2, "Pump code is required"),
+    address: z.string().optional().default(""),
+    status: z.enum(["Active", "Inactive"]),
+    notes: z.string().optional().default(""),
+  }),
   "fuel-purchases": z.object({
     fuelType: z.enum(FUEL_TYPES),
     quantityLiters: z.coerce.number().positive("Quantity must be greater than zero"),
@@ -100,10 +107,26 @@ export const moduleSchemas = {
     password: z.string().min(6, "Password must be at least 6 characters"),
     role: z.enum([ROLES.ADMIN, ROLES.MANAGER, ROLES.OPERATOR]),
     status: z.enum(STATUS_OPTIONS),
+    pumpId: z.string().optional().default(""),
+  }).superRefine((values, ctx) => {
+    if (values.role !== ROLES.ADMIN && !values.pumpId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["pumpId"],
+        message: "Pump is required for manager and operator accounts",
+      });
+    }
   }),
 };
 
 export const resourceFormDefaults = {
+  pumps: {
+    name: "",
+    code: "",
+    address: "",
+    status: "Active",
+    notes: "",
+  },
   "fuel-purchases": {
     fuelType: "Petrol",
     quantityLiters: 0,
@@ -195,5 +218,6 @@ export const resourceFormDefaults = {
     password: "",
     role: "Operator",
     status: "Active",
+    pumpId: "",
   },
 };

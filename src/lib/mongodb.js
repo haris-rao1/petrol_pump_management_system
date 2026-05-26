@@ -28,7 +28,6 @@ export async function connectMongo() {
       });
     }
     cached.conn = await cached.promise;
-    console.log("Connected to MongoDB...");
     return cached.conn;
   } catch (error) {
     console.error("MongoDB connection error:", error);

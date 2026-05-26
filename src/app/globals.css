@@ -27,8 +27,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", "Consolas", "Liberation Mono", Menlo, monospace;
 }
 
 html {
@@ -42,7 +42,7 @@ body {
     radial-gradient(circle at right top, rgba(20, 83, 45, 0.09), transparent 28%),
     linear-gradient(180deg, var(--background), var(--background));
   color: var(--foreground);
-  font-family: var(--font-geist-sans), sans-serif;
+  font-family: var(--font-sans);
 }
 
 * {
