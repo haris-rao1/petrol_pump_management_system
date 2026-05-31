@@ -13,17 +13,19 @@ import { moduleSchemas, resourceFormDefaults } from "@/utils/schemas";
 import { formatCurrency, formatDate, formatNumber, toCsvValue } from "@/utils/format";
 
 const PAGE_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 250;
+const pumpScopedResources = new Set(["fuel-purchases", "fuel-sales", "tanks", "nozzles", "shifts", "expenses", "customers", "payments", "employees", "stock-adjustments"]);
 
 export function ModulePage({ resource }) {
   const config = getModuleConfig(resource) || moduleConfigs[resource];
   const schema = moduleSchemas[resource];
   const defaults = resourceFormDefaults[resource];
-  const pumpScopedResources = new Set(["fuel-purchases", "fuel-sales", "tanks", "nozzles", "shifts", "expenses", "customers", "payments", "employees", "stock-adjustments"]);
 
   const [records, setRecords] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filters, setFilters] = useState(() =>
     Object.fromEntries((config?.filters || []).map((item) => [item.name, ""])),
   );
@@ -42,7 +44,7 @@ export function ModulePage({ resource }) {
   async function fetchRecords() {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), search });
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), search: debouncedSearch });
       Object.entries(filters).forEach(([key, value]) => {
         if (value) {
           params.set(key, value);
@@ -107,12 +109,16 @@ export function ModulePage({ resource }) {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void fetchRecords();
-    }, 0);
+      setDebouncedSearch(search);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    void fetchRecords();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resource, page, search, JSON.stringify(filters)]);
+  }, [resource, page, debouncedSearch, JSON.stringify(filters)]);
 
   useEffect(() => {
     void fetchDynamicOptions();

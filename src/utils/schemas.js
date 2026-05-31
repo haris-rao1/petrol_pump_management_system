@@ -49,8 +49,8 @@ export const moduleSchemas = {
     notes: z.string().optional().default(""),
   }),
   nozzles: z.object({
-    nozzleName: z.string().min(2, "Nozzle name is required"),
-    machineName: z.string().min(2, "Machine name is required"),
+    nozzleName: z.coerce.string().min(1, "Nozzle name is required"),
+    machineName: z.coerce.string().min(1, "Machine name is required"),
     fuelType: z.enum(FUEL_TYPES),
     currentMeterReading: z.coerce.number().nonnegative("Meter reading cannot be negative"),
     status: z.enum(STATUS_OPTIONS),

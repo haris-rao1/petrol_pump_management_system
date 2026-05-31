@@ -65,20 +65,8 @@ async function createRecord(resource, body, user, session, pumpId) {
     case "users": {
       const hashedPassword = await bcrypt.hash(body.password, 12);
       const pumpForDoc = normalizePumpIdForSave(body.pumpId) || null;
-      try {
-        console.log("[DEBUG] pumpForDoc ->", pumpForDoc, "type:", typeof pumpForDoc, "isObjectId:", pumpForDoc && pumpForDoc.constructor && pumpForDoc.constructor.name);
-      } catch (e) {}
       const doc = new model({ ...body, password: hashedPassword, pumpId: pumpForDoc });
-      try {
-        console.log("[DEBUG] Doc before save ->", { ...doc.toObject ? doc.toObject() : doc });
-      } catch (e) {}
       await doc.save(session ? { session } : {});
-      try {
-        const obj = doc.toObject ? doc.toObject() : doc;
-        // remove sensitive fields if present
-        if (obj.password) delete obj.password;
-        console.log("[DEBUG] Saved user doc ->", obj);
-      } catch (e) {}
       return doc;
     }
     case "pumps": {
@@ -102,7 +90,7 @@ async function createRecord(resource, body, user, session, pumpId) {
       await decreaseTankStock(body.fuelType, soldLiters, session, pumpId);
 
       const nozzleName = body.nozzleName || body.nozzle || "";
-      const record = new model({
+      const recordData = {
         ...body,
         nozzleName,
         soldLiters,
@@ -110,11 +98,20 @@ async function createRecord(resource, body, user, session, pumpId) {
         date: new Date(body.date),
         createdBy: user._id,
         pumpId: pumpId || null,
-      });
+      };
+
+      const nozzleId = parseObjectId(body.nozzle);
+      if (nozzleId) {
+        recordData.nozzle = nozzleId;
+      } else {
+        delete recordData.nozzle;
+      }
+
+      const record = new model(recordData);
       await record.save(session ? { session } : {});
 
-      if (body.nozzle) {
-        await updateNozzleReading(body.nozzle, body.closingMeterReading, session, pumpId);
+      if (nozzleId) {
+        await updateNozzleReading(nozzleId, body.closingMeterReading, session, pumpId);
       }
 
       if (body.paymentType === "Credit" && body.customer) {
@@ -160,8 +157,31 @@ async function createRecord(resource, body, user, session, pumpId) {
     }
     case "tanks":
       {
-        const doc = new model({ ...body, currentStock: Number(body.currentStock), capacityLiters: Number(body.capacityLiters), lowStockThreshold: Number(body.lowStockThreshold), pumpId: pumpId || null });
-        await doc.save(session ? { session } : {});
+        const tankFilter = {
+          pumpId: pumpId || null,
+          fuelType: body.fuelType,
+        };
+
+        const tankUpdate = {
+          ...body,
+          currentStock: Number(body.currentStock),
+          capacityLiters: Number(body.capacityLiters),
+          lowStockThreshold: Number(body.lowStockThreshold),
+          pumpId: pumpId || null,
+        };
+
+        const doc = await model.findOneAndUpdate(
+          tankFilter,
+          tankUpdate,
+          {
+            new: true,
+            upsert: true,
+            runValidators: true,
+            setDefaultsOnInsert: true,
+            ...(session ? { session } : {}),
+          },
+        );
+
         return doc;
       }
     case "employees":
@@ -216,11 +236,9 @@ async function updateRecord(resource, id, body, session, pumpId) {
   const filter = pumpScopedResources.has(resource) && pumpId ? { _id: id, pumpId } : { _id: id };
   const updated = await model.findOneAndUpdate(filter, body, options);
   if (resource === "users") {
-    try {
-      const uobj = updated?.toObject ? updated.toObject() : updated;
-      if (uobj?.password) delete uobj.password;
-      console.log("[DEBUG] Updated user ->", uobj);
-    } catch (e) {}
+    if (updated?.password) {
+      delete updated.password;
+    }
   }
   return updated;
 }
@@ -306,11 +324,6 @@ export async function POST(request, { params }) {
       // ignore
     }
   }
-  if (resource === "users") {
-    try {
-      console.log("[DEBUG] POST /api/users body.pumpId ->", body.pumpId);
-    } catch (e) {}
-  }
   const pumpId = toPumpObjectId(body.pumpId || resolvePumpId(user));
   const pumpRequirementError = requirePumpSelection(resource, pumpId);
   if (pumpRequirementError) {
@@ -360,11 +373,6 @@ export async function PATCH(request, { params }) {
     } catch (e) {
       // ignore
     }
-  }
-  if (resource === "users") {
-    try {
-      console.log("[DEBUG] PATCH /api/users body.pumpId ->", body.pumpId);
-    } catch (e) {}
   }
   const transactionalResources = ["fuel-purchases", "fuel-sales", "payments", "stock-adjustments"];
   const pumpId = toPumpObjectId(body.pumpId || resolvePumpId(user));

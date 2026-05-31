@@ -20,7 +20,6 @@ export async function POST(request) {
     await ensureDefaultPump();
 
     const user = await User.findOne({ email: body.email }).select("+password pumpId");
-    console.log("Login attempt for email:", body.email,user);
     if (!user) {
       return failure("Invalid email or password", 401);
     }
@@ -66,7 +65,6 @@ export async function POST(request) {
     setAuthCookie(response, token);
     return response;
   } catch (error) {
-    console.error("Login route failed:", error);
     return failure(
       error instanceof Error && error.message.includes("MONGODB_URI")
         ? "Database connection is not configured"
