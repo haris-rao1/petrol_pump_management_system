@@ -1,5 +1,5 @@
 import { ModulePage } from "@/components/module-page";
 
-export default function ShiftSalesPage() {
+export default function FuelSalesPage() {
   return <ModulePage resource="fuel-sales" />;
 }

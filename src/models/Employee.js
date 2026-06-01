@@ -10,7 +10,6 @@ const employeeSchema = new mongoose.Schema(
     phone: { type: String, required: true, trim: true },
     role: { type: String, enum: Object.values(ROLES), default: ROLES.OPERATOR },
     salary: { type: Number, default: 0 },
-    shift: { type: String, default: "" },
     joiningDate: { type: Date, required: true },
     status: { type: String, enum: STATUS_OPTIONS, default: "Active" },
     attendance: [

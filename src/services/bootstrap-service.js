@@ -5,7 +5,6 @@ import FuelPurchase from "@/models/FuelPurchase";
 import FuelSale from "@/models/FuelSale";
 import Tank from "@/models/Tank";
 import Nozzle from "@/models/Nozzle";
-import Shift from "@/models/Shift";
 import Expense from "@/models/Expense";
 import Customer from "@/models/Customer";
 import Payment from "@/models/Payment";
@@ -29,7 +28,6 @@ async function backfillPumpScope(pumpId) {
     FuelSale.updateMany(scope, { $set: { pumpId } }),
     Tank.updateMany(scope, { $set: { pumpId } }),
     Nozzle.updateMany(scope, { $set: { pumpId } }),
-    Shift.updateMany(scope, { $set: { pumpId } }),
     Expense.updateMany(scope, { $set: { pumpId } }),
     Customer.updateMany(scope, { $set: { pumpId } }),
     Payment.updateMany(scope, { $set: { pumpId } }),

@@ -9,6 +9,7 @@ import mongoose from "mongoose";
 import { escapeRegex, ensureFiniteNumber } from "@/utils/db";
 import Customer from "@/models/Customer";
 import Pump from "@/models/Pump";
+import Product from "@/models/Product";
 import { resolvePumpId, toPumpObjectId, applyPumpScope, withPumpId } from "@/lib/pump";
 
 function normalizePumpIdForSave(value) {
@@ -24,6 +25,23 @@ function normalizePumpIdForSave(value) {
 
 function parseObjectId(value) {
   return typeof value === "string" && value.length === 24 ? value : null;
+}
+
+function getFuelSaleTotals(body) {
+  const soldLiters = calculateSoldLiters(body.openingMeterReading, body.closingMeterReading);
+  const pricePerLiter = ensureFiniteNumber(body.fuelPricePerLiter, "fuelPricePerLiter");
+  const totalSaleAmount = soldLiters * pricePerLiter;
+  const amountReceivedValue = Number(body.amountReceived);
+  const amountReceived = Number.isFinite(amountReceivedValue) ? Math.max(amountReceivedValue, 0) : 0;
+  const pendingAmount = Math.max(totalSaleAmount - amountReceived, 0);
+
+  return {
+    soldLiters,
+    fuelPricePerLiter: pricePerLiter,
+    totalSaleAmount,
+    amountReceived,
+    pendingAmount,
+  };
 }
 
 function buildQuery(resource, searchParams) {
@@ -48,7 +66,7 @@ function buildQuery(resource, searchParams) {
   return query;
 }
 
-const pumpScopedResources = new Set(["fuel-purchases", "fuel-sales", "tanks", "nozzles", "shifts", "expenses", "customers", "payments", "employees", "stock-adjustments"]);
+const pumpScopedResources = new Set(["fuel-purchases", "fuel-sales", "tanks", "nozzles", "expenses", "customers", "payments", "employees", "stock-adjustments"]);
 
 function requirePumpSelection(resource, pumpId) {
   if (pumpScopedResources.has(resource) && !pumpId) {
@@ -84,17 +102,19 @@ async function createRecord(resource, body, user, session, pumpId) {
       return record;
     }
     case "fuel-sales": {
-      const soldLiters = calculateSoldLiters(body.openingMeterReading, body.closingMeterReading);
-      const price = ensureFiniteNumber(body.fuelPricePerLiter, "fuelPricePerLiter");
-      const totalSaleAmount = soldLiters * price;
+      const fuelSaleTotals = getFuelSaleTotals(body);
+      const { soldLiters, fuelPricePerLiter, totalSaleAmount, amountReceived, pendingAmount } = fuelSaleTotals;
       await decreaseTankStock(body.fuelType, soldLiters, session, pumpId);
 
       const nozzleName = body.nozzleName || body.nozzle || "";
       const recordData = {
         ...body,
+        fuelPricePerLiter,
         nozzleName,
         soldLiters,
         totalSaleAmount,
+        amountReceived,
+        pendingAmount,
         date: new Date(body.date),
         createdBy: user._id,
         pumpId: pumpId || null,
@@ -114,13 +134,7 @@ async function createRecord(resource, body, user, session, pumpId) {
         await updateNozzleReading(nozzleId, body.closingMeterReading, session, pumpId);
       }
 
-      if (body.paymentType === "Credit" && body.customer) {
-        const customer = await Customer.findOne({ $or: [{ _id: parseObjectId(body.customer) || undefined }, { name: body.customer }], pumpId: pumpId || null }).session(session || null);
-        if (customer) {
-          customer.pendingBalance = Number(customer.pendingBalance || 0) + Number(body.pendingAmount || 0);
-          await customer.save(session ? { session } : {});
-        }
-      }
+      // paymentType and customer handled via dedicated `payments` resource
 
       return record;
     }
@@ -208,12 +222,6 @@ async function createRecord(resource, body, user, session, pumpId) {
         await doc.save(session ? { session } : {});
         return doc;
       }
-    case "shifts":
-      {
-        const doc = new model({ ...body, startTime: new Date(body.startTime), endTime: body.endTime ? new Date(body.endTime) : undefined, pumpId: pumpId || null });
-        await doc.save(session ? { session } : {});
-        return doc;
-      }
     default:
       {
         const doc = new model(withPumpId(body, pumpId));
@@ -230,6 +238,14 @@ async function updateRecord(resource, id, body, session, pumpId) {
   }
   if (resource === "users" && body.password) {
     body.password = await bcrypt.hash(body.password, 12);
+  }
+  if (resource === "fuel-sales") {
+    const fuelSaleTotals = getFuelSaleTotals(body);
+    body.soldLiters = fuelSaleTotals.soldLiters;
+    body.fuelPricePerLiter = fuelSaleTotals.fuelPricePerLiter;
+    body.totalSaleAmount = fuelSaleTotals.totalSaleAmount;
+    body.amountReceived = fuelSaleTotals.amountReceived;
+    body.pendingAmount = fuelSaleTotals.pendingAmount;
   }
   const options = { returnDocument: 'after' };
   if (session) options.session = session;
@@ -295,6 +311,31 @@ export async function GET(request, { params }) {
         const pumpKey = item.pumpId?.toString?.();
         if (pumpKey && pumpMap.has(pumpKey)) {
           item.pumpId = pumpMap.get(pumpKey);
+        }
+      }
+    }
+  }
+
+  if (resource === "payments") {
+    const customerIds = [...new Set(items.map((item) => {
+      if (!item) return null;
+      if (item.customer && typeof item.customer === 'object' && item.customer._id) return String(item.customer._id);
+      if (item.customer) return String(item.customer);
+      return null;
+    }).filter(Boolean))];
+
+    if (customerIds.length) {
+      const customers = await Customer.find({ _id: { $in: customerIds } }).select("name vehicleNumber").lean();
+      const customerMap = new Map(customers.map((c) => [String(c._id), c]));
+      for (const item of items) {
+        const cid = item.customer?.toString?.() || (item.customer && item.customer._id ? String(item.customer._id) : null);
+        if (cid && customerMap.has(cid)) {
+          const cust = customerMap.get(cid);
+          item.customerName = cust.name;
+          // keep customer populated with object for convenience
+          item.customer = cust;
+        } else if (!item.customerName) {
+          item.customerName = item.customer || null;
         }
       }
     }

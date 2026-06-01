@@ -14,7 +14,7 @@ export default async function DashboardPage() {
       <section className="grid gap-5 xl:grid-cols-5">
         <StatCard title="Petrol Stock" value={`${formatRawNumber(summary.stock.petrol)} L`} subtitle="Current underground tank stock" icon={Fuel} tone="green" />
         <StatCard title="Diesel Stock" value={`${formatRawNumber(summary.stock.diesel)} L`} subtitle="Current underground tank stock" icon={Fuel} tone="amber" />
-        <StatCard title="Today's Sales" value={formatCurrency(summary.totals.todaySales)} subtitle="Manual shift entries captured today" icon={Receipt} tone="blue" />
+        <StatCard title="Today's Sales" value={formatCurrency(summary.totals.todaySales)} subtitle="Sales recorded today" icon={Receipt} tone="blue" />
         <StatCard title="Today's Profit" value={formatCurrency(summary.totals.todayProfit)} subtitle="Sales - purchases - expenses" icon={PiggyBank} tone="green" />
         <StatCard title="Credit Pending" value={formatCurrency(summary.totals.creditPending)} subtitle="Outstanding customer balances" icon={Wallet} tone="rose" />
       </section>

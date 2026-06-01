@@ -13,8 +13,7 @@ export async function GET(request) {
     startDate: searchParams.get("startDate"),
     endDate: searchParams.get("endDate"),
     fuelType: searchParams.get("fuelType"),
-    employee: searchParams.get("employee"),
-    shift: searchParams.get("shift"),
+    section: searchParams.get("section") || "all",
   }, user.activePumpId);
 
   return success(report);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BadgeCheck, Menu, LogOut, MoonStar, SunMedium, Gauge, ChevronRight } from "lucide-react";
 import { NAV_ITEMS } from "@/lib/constants";
+import { toast } from "sonner";
 import { cn } from "@/components/cn";
 
 export function AppShell({ user, children }) {
@@ -18,7 +19,23 @@ export function AppShell({ user, children }) {
   );
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {
+        // ignore JSON parse errors
+      }
+      if (!response.ok) {
+        toast.error(payload.message || "Unable to log out");
+        return;
+      }
+    } catch (error) {
+      toast.error(error?.message || "Logout failed");
+      return;
+    }
+
     router.replace("/login");
     router.refresh();
   }

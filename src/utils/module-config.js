@@ -3,6 +3,18 @@ import { formatCurrency, formatDate, formatNumber, formatRawNumber } from "@/uti
 
 const dateField = { type: "date" };
 
+function getFuelSaleTotalAmount(record = {}) {
+  const soldLiters = Number(record.soldLiters ?? Number(record.closingMeterReading || 0) - Number(record.openingMeterReading || 0));
+  const pricePerLiter = Number(record.fuelPricePerLiter || 0);
+  return soldLiters * pricePerLiter;
+}
+
+function getFuelSalePendingAmount(record = {}) {
+  const totalAmount = Number(record.totalSaleAmount ?? getFuelSaleTotalAmount(record));
+  const amountReceived = Number(record.amountReceived || 0);
+  return Math.max(totalAmount - amountReceived, 0);
+}
+
 export const moduleConfigs = {
   pumps: {
     title: "Pump Management",
@@ -32,10 +44,10 @@ export const moduleConfigs = {
     endpoint: "fuel-purchases",
     searchFields: ["supplierName", "invoiceNumber", "fuelType"],
     filters: [
-      { name: "fuelType", label: "Fuel Type", type: "select", options: ["", ...FUEL_TYPES] },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
     ],
     fields: [
-      { name: "fuelType", label: "Fuel Type", type: "select", options: FUEL_TYPES },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
       { name: "quantityLiters", label: "Quantity (Liters)", type: "number" },
       { name: "pricePerLiter", label: "Price Per Liter", type: "number" },
       { name: "supplierName", label: "Supplier Name", type: "text" },
@@ -54,38 +66,33 @@ export const moduleConfigs = {
     ],
   },
   "fuel-sales": {
-    title: "Shift Sales Management",
+    title: "Fuel Sales Management",
     description: "Enter manual meter readings and calculate sold liters automatically.",
     endpoint: "fuel-sales",
-    searchFields: ["shiftName", "operatorName", "nozzleName", "customer", "fuelType"],
+    searchFields: ["nozzleName", "fuelType"],
     filters: [
-      { name: "fuelType", label: "Fuel Type", type: "select", options: ["", ...FUEL_TYPES] },
-      { name: "paymentType", label: "Payment Type", type: "select", options: ["", "Cash", "Credit"] },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
     ],
     fields: [
-      { name: "shiftName", label: "Shift Name", type: "text" },
-      { name: "operatorName", label: "Operator Name", type: "text" },
-      { name: "nozzleName", label: "Nozzle Name", type: "text" },
-      { name: "fuelType", label: "Fuel Type", type: "select", options: FUEL_TYPES },
+      { name: "nozzleName", label: "Nozzle Name", type: "select", optionsSource: "nozzles" },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
       { name: "openingMeterReading", label: "Opening Meter Reading", type: "number" },
       { name: "closingMeterReading", label: "Closing Meter Reading", type: "number" },
       { name: "fuelPricePerLiter", label: "Fuel Price Per Liter", type: "number" },
-      { name: "paymentType", label: "Payment Type", type: "select", options: ["Cash", "Credit"] },
-      { name: "customer", label: "Customer Name", type: "text" },
       { name: "amountReceived", label: "Amount Received", type: "number" },
-      { name: "pendingAmount", label: "Pending Amount", type: "number" },
+      { name: "totalSaleAmount", label: "Total Amount", type: "number", readOnly: true },
+      { name: "pendingAmount", label: "Pending Amount", type: "number", readOnly: true },
       { name: "date", label: "Date", ...dateField },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
     columns: [
       { key: "date", label: "Date", formatter: formatDate },
-      { key: "shiftName", label: "Shift" },
-      { key: "operatorName", label: "Operator" },
       { key: "nozzleName", label: "Nozzle" },
       { key: "fuelType", label: "Fuel" },
       { key: "soldLiters", label: "Sold Liters", formatter: formatRawNumber },
-      { key: "totalSaleAmount", label: "Sale Amount", formatter: formatCurrency },
-      { key: "paymentType", label: "Payment" },
+      { key: "totalSaleAmount", label: "Total Amount", formatter: (_, record) => formatCurrency(getFuelSaleTotalAmount(record)) },
+      { key: "amountReceived", label: "Amount Received", formatter: formatCurrency },
+      { key: "pendingAmount", label: "Pending Amount", formatter: (_, record) => formatCurrency(getFuelSalePendingAmount(record)) },
     ],
   },
   tanks: {
@@ -94,10 +101,10 @@ export const moduleConfigs = {
     endpoint: "tanks",
     searchFields: ["fuelType", "notes"],
     filters: [
-      { name: "fuelType", label: "Fuel Type", type: "select", options: ["", ...FUEL_TYPES] },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
     ],
     fields: [
-      { name: "fuelType", label: "Fuel Type", type: "select", options: FUEL_TYPES },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
       { name: "currentStock", label: "Current Stock", type: "number" },
       { name: "capacityLiters", label: "Capacity Liters", type: "number" },
       { name: "lowStockThreshold", label: "Low Stock Threshold", type: "number" },
@@ -117,13 +124,13 @@ export const moduleConfigs = {
     endpoint: "nozzles",
     searchFields: ["nozzleName", "machineName", "fuelType"],
     filters: [
-      { name: "fuelType", label: "Fuel Type", type: "select", options: ["", ...FUEL_TYPES] },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
       { name: "status", label: "Status", type: "select", options: ["", ...STATUS_OPTIONS] },
     ],
     fields: [
       { name: "nozzleName", label: "Nozzle Name", type: "text" },
       { name: "machineName", label: "Machine Name", type: "text" },
-      { name: "fuelType", label: "Fuel Type", type: "select", options: FUEL_TYPES },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
       { name: "currentMeterReading", label: "Current Meter Reading", type: "number" },
       { name: "status", label: "Status", type: "select", options: STATUS_OPTIONS },
     ],
@@ -135,30 +142,7 @@ export const moduleConfigs = {
       { key: "status", label: "Status" },
     ],
   },
-  shifts: {
-    title: "Shift Operations",
-    description: "Track operator shifts, openings, closings, and shift status.",
-    endpoint: "shifts",
-    searchFields: ["shiftName", "operatorName", "status"],
-    filters: [
-      { name: "status", label: "Status", type: "select", options: ["", "Open", "Closed", "Pending"] },
-    ],
-    fields: [
-      { name: "shiftName", label: "Shift Name", type: "text" },
-      { name: "operatorName", label: "Operator Name", type: "text" },
-      { name: "startTime", label: "Start Time", ...dateField },
-      { name: "endTime", label: "End Time", type: "date" },
-      { name: "status", label: "Status", type: "select", options: ["Open", "Closed", "Pending"] },
-      { name: "notes", label: "Notes", type: "textarea" },
-    ],
-    columns: [
-      { key: "shiftName", label: "Shift" },
-      { key: "operatorName", label: "Operator" },
-      { key: "startTime", label: "Start", formatter: formatDate },
-      { key: "endTime", label: "End", formatter: formatDate },
-      { key: "status", label: "Status" },
-    ],
-  },
+  
   expenses: {
     title: "Expense Management",
     description: "Capture daily operational expenses and categories.",
@@ -212,7 +196,8 @@ export const moduleConfigs = {
       { name: "method", label: "Method", type: "select", options: ["", ...PAYMENT_METHODS] },
     ],
     fields: [
-      { name: "customer", label: "Customer Name or ID", type: "text" },
+      { name: "customer", label: "Customer Name", type: "text" },
+      { name: "vehicleNumber", label: "Vehicle Number", type: "text", readOnly: true },
       { name: "amount", label: "Amount", type: "number" },
       { name: "method", label: "Method", type: "select", options: PAYMENT_METHODS },
       { name: "note", label: "Note", type: "textarea" },
@@ -227,9 +212,9 @@ export const moduleConfigs = {
   },
   employees: {
     title: "Employee Management",
-    description: "Manage employee profiles, attendance, salary, and shift assignments.",
+    description: "Manage employee profiles, attendance, salary, and assignments.",
     endpoint: "employees",
-    searchFields: ["name", "cnic", "phone", "role", "shift"],
+    searchFields: ["name", "cnic", "phone", "role"],
     filters: [
       { name: "role", label: "Role", type: "select", options: ["", "Admin", "Manager", "Operator"] },
       { name: "status", label: "Status", type: "select", options: ["", ...STATUS_OPTIONS] },
@@ -240,7 +225,6 @@ export const moduleConfigs = {
       { name: "phone", label: "Phone", type: "text" },
       { name: "role", label: "Role", type: "select", options: ROLE_OPTIONS },
       { name: "salary", label: "Salary", type: "number" },
-      { name: "shift", label: "Shift", type: "text" },
       { name: "joiningDate", label: "Joining Date", ...dateField },
       { name: "status", label: "Status", type: "select", options: STATUS_OPTIONS },
     ],
@@ -248,7 +232,6 @@ export const moduleConfigs = {
       { key: "name", label: "Employee" },
       { key: "role", label: "Role" },
       { key: "salary", label: "Salary", formatter: formatCurrency },
-      { key: "shift", label: "Shift" },
       { key: "status", label: "Status" },
     ],
   },
@@ -258,10 +241,10 @@ export const moduleConfigs = {
     endpoint: "stock-adjustments",
     searchFields: ["fuelType", "reason"],
     filters: [
-      { name: "fuelType", label: "Fuel Type", type: "select", options: ["", ...FUEL_TYPES] },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
     ],
     fields: [
-      { name: "fuelType", label: "Fuel Type", type: "select", options: FUEL_TYPES },
+      { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
       { name: "adjustmentQuantity", label: "Adjustment Quantity", type: "number" },
       { name: "reason", label: "Reason", type: "textarea" },
       { name: "date", label: "Date", ...dateField },
@@ -271,6 +254,26 @@ export const moduleConfigs = {
       { key: "fuelType", label: "Fuel Type" },
       { key: "adjustmentQuantity", label: "Adjustment", formatter: formatRawNumber },
       { key: "reason", label: "Reason" },
+    ],
+  },
+  products: {
+    title: "Product & Rate Master",
+    description: "Define petrol, diesel, and any other fuel/product.",
+    endpoint: "products",
+    searchFields: ["name", "code", "status"],
+    filters: [
+      { name: "status", label: "Status", type: "select", options: ["", "Active", "Inactive"] },
+    ],
+    fields: [
+      { name: "name", label: "Product Name", type: "text" },
+      { name: "code", label: "Code", type: "text" },
+      { name: "status", label: "Status", type: "select", options: ["Active", "Inactive"] },
+      { name: "notes", label: "Notes", type: "textarea" },
+    ],
+    columns: [
+      { key: "name", label: "Product" },
+      { key: "code", label: "Code" },
+      { key: "status", label: "Status" },
     ],
   },
   users: {

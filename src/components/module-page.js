@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -14,7 +14,7 @@ import { formatCurrency, formatDate, formatNumber, toCsvValue } from "@/utils/fo
 
 const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 250;
-const pumpScopedResources = new Set(["fuel-purchases", "fuel-sales", "tanks", "nozzles", "shifts", "expenses", "customers", "payments", "employees", "stock-adjustments"]);
+const pumpScopedResources = new Set(["fuel-purchases", "fuel-sales", "tanks", "nozzles", "expenses", "customers", "payments", "employees", "stock-adjustments"]);
 
 export function ModulePage({ resource }) {
   const config = getModuleConfig(resource) || moduleConfigs[resource];
@@ -35,11 +35,59 @@ export function ModulePage({ resource }) {
   const [open, setOpen] = useState(false);
   const [dynamicOptions, setDynamicOptions] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
+  const [customerSearchResults, setCustomerSearchResults] = useState([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const selectedPumpId = currentUser?.activePumpId || currentUser?.pumpId || "";
 
   const form = useForm({
     resolver: zodResolver(schema),
     defaultValues: defaults,
   });
+
+  const { setValue, control } = form;
+  const watchedOpeningMeterReading = useWatch({ control, name: "openingMeterReading" });
+  const watchedClosingMeterReading = useWatch({ control, name: "closingMeterReading" });
+  const watchedFuelPricePerLiter = useWatch({ control, name: "fuelPricePerLiter" });
+  const watchedAmountReceived = useWatch({ control, name: "amountReceived" });
+  const watchedCustomer = useWatch({ control, name: "customer" });
+
+  const computedSoldLiters = Math.max(0, Number(watchedClosingMeterReading || 0) - Number(watchedOpeningMeterReading || 0));
+  const computedTotalSaleAmount = computedSoldLiters * Number(watchedFuelPricePerLiter || 0);
+  const computedPendingAmount = Math.max(computedTotalSaleAmount - Number(watchedAmountReceived || 0), 0);
+
+  useEffect(() => {
+    if (config.endpoint === "fuel-sales") {
+      setValue("totalSaleAmount", computedTotalSaleAmount, { shouldDirty: true });
+      setValue("pendingAmount", computedPendingAmount, { shouldDirty: true });
+    }
+  }, [config.endpoint, computedPendingAmount, computedTotalSaleAmount, setValue]);
+
+  useEffect(() => {
+    if (config.endpoint === "payments" && watchedCustomer && watchedCustomer.length >= 1) {
+      const searchCustomers = async () => {
+        try {
+          const response = await fetch(`/api/customers?search=${encodeURIComponent(watchedCustomer)}&limit=10`);
+          const payload = await response.json();
+          const customers = payload.data?.items || [];
+          setCustomerSearchResults(customers);
+          setShowCustomerDropdown(customers.length > 0);
+        } catch (error) {
+          setCustomerSearchResults([]);
+          setShowCustomerDropdown(false);
+        }
+      };
+      searchCustomers();
+    } else {
+      setCustomerSearchResults([]);
+      setShowCustomerDropdown(false);
+    }
+  }, [config.endpoint, watchedCustomer]);
+
+  function selectCustomer(customer) {
+    setValue("customer", customer.name, { shouldDirty: true });
+    setValue("vehicleNumber", customer.vehicleNumber || "", { shouldDirty: false });
+    setShowCustomerDropdown(false);
+  }
 
   async function fetchRecords() {
     setLoading(true);
@@ -73,22 +121,57 @@ export function ModulePage({ resource }) {
       return;
     }
 
+    if (optionFields.some((field) => field.optionsSource === "nozzles") && !selectedPumpId) {
+      return;
+    }
+
     const nextOptions = {};
+    try {
+      await Promise.all(
+        optionFields.map(async (field) => {
+          if (field.optionsSource === "pumps") {
+            const response = await fetch("/api/pumps?page=1&limit=1000");
+            const payload = await response.json();
+            if (!response.ok) {
+              throw new Error(payload.message || "Unable to load pumps");
+            }
+            nextOptions[field.name] = (payload.data?.items || []).map((item) => ({
+              label: `${item.name} (${item.code})`,
+              value: item._id,
+            }));
+          }
 
-    await Promise.all(
-      optionFields.map(async (field) => {
-        if (field.optionsSource === "pumps") {
-          const response = await fetch("/api/pumps?page=1&limit=1000");
-          const payload = await response.json();
-          nextOptions[field.name] = (payload.data?.items || []).map((item) => ({
-            label: `${item.name} (${item.code})`,
-            value: item._id,
-          }));
-        }
-      }),
-    );
+          if (field.optionsSource === "products") {
+            const response = await fetch("/api/products?page=1&limit=1000");
+            const payload = await response.json();
+            if (!response.ok) {
+              throw new Error(payload.message || "Unable to load products");
+            }
+            nextOptions[field.name] = (payload.data?.items || []).map((item) => ({
+              label: item.name,
+              value: item.name,
+            }));
+          }
 
-    setDynamicOptions(nextOptions);
+          if (field.optionsSource === "nozzles") {
+            const response = await fetch("/api/nozzles?page=1&limit=1000");
+            const payload = await response.json();
+            if (!response.ok) {
+              throw new Error(payload.message || "Unable to load nozzles");
+            }
+            nextOptions[field.name] = (payload.data?.items || []).map((item) => ({
+              label: `${item.nozzleName}${item.machineName ? ` (${item.machineName})` : ""}`,
+              value: item.nozzleName,
+            }));
+          }
+        }),
+      );
+
+      setDynamicOptions(nextOptions);
+    } catch (error) {
+      // Surface dynamic option load errors but don't block the page
+      toast.error(error?.message || "Unable to load form options");
+    }
   }
 
   async function fetchCurrentUser() {
@@ -117,17 +200,14 @@ export function ModulePage({ resource }) {
 
   useEffect(() => {
     void fetchRecords();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resource, page, debouncedSearch, JSON.stringify(filters)]);
 
   useEffect(() => {
     void fetchDynamicOptions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resource]);
+  }, [resource, selectedPumpId]);
 
   useEffect(() => {
     void fetchCurrentUser();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function openCreateModal() {
@@ -355,18 +435,71 @@ export function ModulePage({ resource }) {
               <button onClick={() => setOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-4 py-2 text-sm dark:bg-white/5">Close</button>
             </div>
 
-            <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 md:grid-cols-2">
-              {config.fields.map((field) => (
-                <FormField
-                  key={field.name}
-                  field={field}
-                  options={field.optionsSource ? dynamicOptions[field.name] || [] : field.options || []}
-                  register={form.register}
-                  error={form.formState.errors[field.name]}
-                />
-              ))}
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 md:grid-cols-2">
+                {config.fields.map((field) => {
+                  if (config.endpoint === "payments" && field.name === "customer") {
+                    return (
+                      <div key={field.name} className="relative space-y-2">
+                        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">{field.label}</label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                            placeholder={field.label}
+                            {...form.register(field.name)}
+                            onFocus={() => watchedCustomer && customerSearchResults.length > 0 && setShowCustomerDropdown(true)}
+                          />
+                          {showCustomerDropdown && customerSearchResults.length > 0 ? (
+                            <div className="absolute top-full left-0 right-0 z-10 mt-1 max-h-48 overflow-y-auto rounded-2xl border border-slate-300/70 bg-white/90 dark:border-white/10 dark:bg-slate-900">
+                              {customerSearchResults.map((customer) => (
+                                <button
+                                  key={customer._id}
+                                  type="button"
+                                  onClick={() => selectCustomer(customer)}
+                                  className="w-full px-4 py-3 text-left text-sm transition hover:bg-slate-100 dark:hover:bg-white/10"
+                                >
+                                  <div className="font-medium">{customer.name}</div>
+                                  <div className="text-xs text-slate-500">{customer.vehicleNumber || "No vehicle"}</div>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                        {form.formState.errors[field.name] ? <span className="text-xs text-rose-500">{form.formState.errors[field.name].message}</span> : null}
+                      </div>
+                    );
+                  }
+                  return (
+                    <FormField
+                      key={field.name}
+                      field={field}
+                      options={field.optionsSource ? dynamicOptions[field.name] || [] : field.options || []}
+                      register={form.register}
+                      error={form.formState.errors[field.name]}
+                    />
+                  );
+                })}
 
-              <div className="md:col-span-2 flex justify-end gap-3 pt-2">
+                {config.endpoint === "fuel-sales" ? (
+                  <div className="md:col-span-2 grid gap-4 rounded-3xl border border-slate-200/70 bg-slate-50/80 p-5 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Sold Liters</span>
+                        <p className="mt-2 text-lg font-semibold">{formatNumber(computedSoldLiters)}</p>
+                      </div>
+                      <div>
+                        <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Total Amount</span>
+                        <p className="mt-2 text-lg font-semibold">{formatCurrency(computedTotalSaleAmount)}</p>
+                      </div>
+                      <div>
+                        <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Pending Amount</span>
+                        <p className="mt-2 text-lg font-semibold">{formatCurrency(computedPendingAmount)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="md:col-span-2 flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-5 py-3 text-sm dark:bg-white/5">Cancel</button>
                 <button type="submit" disabled={saving} className="rounded-2xl bg-(--brand) px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-green-950/20 disabled:opacity-60">
                   {saving ? "Saving..." : editing ? "Update Record" : "Create Record"}
@@ -395,7 +528,14 @@ function FormField({ field, options, register, error }) {
       ) : field.type === "textarea" ? (
         <textarea rows={4} className={base} {...register(field.name)} />
       ) : (
-        <input type={field.type === "date" ? "date" : field.type || "text"} step={field.type === "number" ? "any" : undefined} className={base} {...register(field.name)} />
+        <input
+          type={field.type === "date" ? "date" : field.type || "text"}
+          step={field.type === "number" ? "any" : undefined}
+          className={cn(base, field.readOnly ? "cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/80" : "")}
+          readOnly={field.readOnly}
+          disabled={field.readOnly}
+          {...register(field.name)}
+        />
       )}
       {error ? <span className="text-xs text-rose-500">{error.message}</span> : null}
     </label>

@@ -31,10 +31,11 @@ export const DEFAULT_ADMIN = {
 export const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", roles: ROLE_OPTIONS },
   { label: "Fuel Purchases", href: "/fuel-purchases", roles: ROLE_OPTIONS },
-  { label: "Shift Sales", href: "/shift-sales", roles: ROLE_OPTIONS },
+  { label: "Fuel Sales", href: "/fuel-sales", roles: ROLE_OPTIONS },
   { label: "Tank Stock", href: "/tanks", roles: ROLE_OPTIONS },
   { label: "Nozzles", href: "/nozzles", roles: ROLE_OPTIONS },
-  { label: "Shifts", href: "/shifts", roles: ROLE_OPTIONS },
+  { label: "Products", href: "/settings/products", roles: [ROLES.ADMIN, ROLES.MANAGER] },
+  
   { label: "Expenses", href: "/expenses", roles: ROLE_OPTIONS },
   { label: "Credit Customers", href: "/customers", roles: ROLE_OPTIONS },
   { label: "Payments", href: "/payments", roles: ROLE_OPTIONS },
@@ -48,9 +49,10 @@ export const API_RESOURCES = [
   "users",
   "fuel-purchases",
   "fuel-sales",
+  "products",
   "tanks",
   "nozzles",
-  "shifts",
+  
   "expenses",
   "customers",
   "payments",

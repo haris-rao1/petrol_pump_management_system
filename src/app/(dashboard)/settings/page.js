@@ -21,6 +21,12 @@ export default function SettingsPage() {
           <h2 className="mt-2 text-xl font-semibold">Create staff login accounts</h2>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Assign a user to a specific pump and role.</p>
         </a>
+
+        <a href="/settings/products" className="glass-panel rounded-4xl p-6 transition hover:-translate-y-0.5 hover:shadow-xl">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Products & Rates</p>
+          <h2 className="mt-2 text-xl font-semibold">Define fuel names and sale rates</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Manage Petrol, Diesel, or any other product you sell at the pump.</p>
+        </a>
       </section>
 
       <section className="glass-panel rounded-4xl p-6 text-sm text-slate-600 dark:text-slate-300">

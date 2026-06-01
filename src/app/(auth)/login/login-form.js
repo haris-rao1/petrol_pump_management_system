@@ -19,35 +19,40 @@ export default function LoginForm() {
   });
 
   async function onSubmit(values) {
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(values),
-    });
-    const rawResponse = await response.text();
-    let payload = {};
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
 
-    if (rawResponse) {
-      try {
-        payload = JSON.parse(rawResponse);
-      } catch {
-        payload = { message: rawResponse };
+      const rawResponse = await response.text();
+      let payload = {};
+
+      if (rawResponse) {
+        try {
+          payload = JSON.parse(rawResponse);
+        } catch {
+          payload = { message: rawResponse };
+        }
       }
-    }
 
-    if (!response.ok) {
-      toast.error(payload.message || "Unable to sign in");
-      return;
-    }
+      if (!response.ok) {
+        toast.error(payload.message || "Unable to sign in");
+        return;
+      }
 
-    toast.success("Welcome back");
-    const signedInUser = payload.data?.user;
-    const nextUrl =
-      signedInUser?.role === "Admin" && !signedInUser?.activePumpId
-        ? "/settings/pumps"
-        : searchParams.get("next") || "/dashboard";
-    router.replace(nextUrl);
-    router.refresh();
+      toast.success("Welcome back");
+      const signedInUser = payload.data?.user;
+      const nextUrl =
+        signedInUser?.role === "Admin" && !signedInUser?.activePumpId
+          ? "/settings/pumps"
+          : searchParams.get("next") || "/dashboard";
+      router.replace(nextUrl);
+      router.refresh();
+    } catch (error) {
+      toast.error(error?.message || "Unable to sign in");
+    }
   }
 
   return (

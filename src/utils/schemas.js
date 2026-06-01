@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EXPENSE_CATEGORIES, FUEL_TYPES, PAYMENT_METHODS, ROLES, STATUS_OPTIONS } from "@/lib/constants";
+import { EXPENSE_CATEGORIES, PAYMENT_METHODS, ROLES, STATUS_OPTIONS } from "@/lib/constants";
 
 export const loginSchema = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -17,7 +17,7 @@ export const moduleSchemas = {
     notes: z.string().optional().default(""),
   }),
   "fuel-purchases": z.object({
-    fuelType: z.enum(FUEL_TYPES),
+    fuelType: z.string().min(2, "Fuel type is required"),
     quantityLiters: z.coerce.number().positive("Quantity must be greater than zero"),
     pricePerLiter: z.coerce.number().positive("Price must be greater than zero"),
     supplierName: z.string().min(2, "Supplier name is required"),
@@ -26,23 +26,19 @@ export const moduleSchemas = {
     notes: z.string().optional().default(""),
   }),
   "fuel-sales": z.object({
-    shiftName: z.string().min(2, "Shift name is required"),
-    operatorName: z.string().min(2, "Operator name is required"),
     nozzleName: z.string().min(2, "Nozzle name is required"),
+    machineName: z.string().optional().default(""),
     nozzle: z.string().optional().default(""),
-    fuelType: z.enum(FUEL_TYPES),
+    fuelType: z.string().min(2, "Product is required"),
     openingMeterReading: z.coerce.number().nonnegative("Opening reading must be zero or greater"),
     closingMeterReading: z.coerce.number().nonnegative("Closing reading must be zero or greater"),
     fuelPricePerLiter: z.coerce.number().positive("Price must be greater than zero"),
-    paymentType: z.enum(["Cash", "Credit"]),
-    customer: z.string().optional().default(""),
-    amountReceived: z.coerce.number().nonnegative().default(0),
-    pendingAmount: z.coerce.number().nonnegative().default(0),
+    amountReceived: z.coerce.number().nonnegative().default(0),    totalSaleAmount: z.coerce.number().nonnegative().default(0),    pendingAmount: z.coerce.number().nonnegative().default(0),
     date: sharedDate,
     notes: z.string().optional().default(""),
   }),
   tanks: z.object({
-    fuelType: z.enum(FUEL_TYPES),
+    fuelType: z.string().min(2, "Fuel type is required"),
     currentStock: z.coerce.number().nonnegative("Current stock cannot be negative"),
     capacityLiters: z.coerce.number().nonnegative("Capacity cannot be negative").default(0),
     lowStockThreshold: z.coerce.number().nonnegative().default(5000),
@@ -51,18 +47,11 @@ export const moduleSchemas = {
   nozzles: z.object({
     nozzleName: z.coerce.string().min(1, "Nozzle name is required"),
     machineName: z.coerce.string().min(1, "Machine name is required"),
-    fuelType: z.enum(FUEL_TYPES),
+    fuelType: z.string().min(2, "Fuel type is required"),
     currentMeterReading: z.coerce.number().nonnegative("Meter reading cannot be negative"),
     status: z.enum(STATUS_OPTIONS),
   }),
-  shifts: z.object({
-    shiftName: z.string().min(2, "Shift name is required"),
-    operatorName: z.string().min(2, "Operator name is required"),
-    startTime: sharedDate,
-    endTime: z.string().optional().default(""),
-    status: z.enum(["Open", "Closed", "Pending"]),
-    notes: z.string().optional().default(""),
-  }),
+  
   expenses: z.object({
     expenseTitle: z.string().min(2, "Expense title is required"),
     category: z.enum(EXPENSE_CATEGORIES),
@@ -80,6 +69,7 @@ export const moduleSchemas = {
   }),
   payments: z.object({
     customer: z.string().min(2, "Customer is required"),
+    vehicleNumber: z.string().optional().default(""),
     amount: z.coerce.number().positive("Payment amount must be greater than zero"),
     method: z.enum(PAYMENT_METHODS),
     note: z.string().optional().default(""),
@@ -91,15 +81,20 @@ export const moduleSchemas = {
     phone: z.string().min(7, "Phone number is required"),
     role: z.enum([ROLES.ADMIN, ROLES.MANAGER, ROLES.OPERATOR]),
     salary: z.coerce.number().nonnegative().default(0),
-    shift: z.string().optional().default(""),
     joiningDate: sharedDate,
     status: z.enum(STATUS_OPTIONS),
   }),
   "stock-adjustments": z.object({
-    fuelType: z.enum(FUEL_TYPES),
+    fuelType: z.string().min(2, "Fuel type is required"),
     adjustmentQuantity: z.coerce.number(),
     reason: z.string().min(2, "Reason is required"),
     date: sharedDate,
+  }),
+  products: z.object({
+    name: z.string().min(2, "Product name is required"),
+    code: z.string().optional().default(""),
+    status: z.enum(["Active", "Inactive"]),
+    notes: z.string().optional().default(""),
   }),
   users: z.object({
     name: z.string().min(2, "Name is required"),
@@ -137,17 +132,15 @@ export const resourceFormDefaults = {
     notes: "",
   },
   "fuel-sales": {
-    shiftName: "",
-    operatorName: "",
     nozzleName: "",
+    machineName: "",
     nozzle: "",
     fuelType: "Petrol",
     openingMeterReading: 0,
     closingMeterReading: 0,
     fuelPricePerLiter: 0,
-    paymentType: "Cash",
-    customer: "",
     amountReceived: 0,
+    totalSaleAmount: 0,
     pendingAmount: 0,
     date: new Date().toISOString().slice(0, 10),
     notes: "",
@@ -166,14 +159,7 @@ export const resourceFormDefaults = {
     currentMeterReading: 0,
     status: "Active",
   },
-  shifts: {
-    shiftName: "",
-    operatorName: "",
-    startTime: new Date().toISOString().slice(0, 10),
-    endTime: "",
-    status: "Open",
-    notes: "",
-  },
+  
   expenses: {
     expenseTitle: "",
     category: "Miscellaneous",
@@ -191,6 +177,7 @@ export const resourceFormDefaults = {
   },
   payments: {
     customer: "",
+    vehicleNumber: "",
     amount: 0,
     method: "Cash",
     note: "",
@@ -202,7 +189,6 @@ export const resourceFormDefaults = {
     phone: "",
     role: "Operator",
     salary: 0,
-    shift: "",
     joiningDate: new Date().toISOString().slice(0, 10),
     status: "Active",
   },
@@ -211,6 +197,12 @@ export const resourceFormDefaults = {
     adjustmentQuantity: 0,
     reason: "",
     date: new Date().toISOString().slice(0, 10),
+  },
+  products: {
+    name: "Petrol",
+    code: "",
+    status: "Active",
+    notes: "",
   },
   users: {
     name: "",
