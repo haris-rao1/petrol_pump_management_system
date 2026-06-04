@@ -70,6 +70,10 @@ export function ModulePage({ resource }) {
     () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, String(item._id)])),
     [nozzleOptions],
   );
+  const nozzleNameToFuelType = useMemo(
+    () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, item.fuelType || ""])),
+    [nozzleOptions],
+  );
   const watchedOpeningMeterReading = useWatch({ control, name: "openingMeterReading" });
   const watchedClosingMeterReading = useWatch({ control, name: "closingMeterReading" });
   const watchedFuelPricePerLiter = useWatch({ control, name: "fuelPricePerLiter" });
@@ -86,25 +90,32 @@ export function ModulePage({ resource }) {
     }
     const nozzleId = nozzleNameToId.get(nozzleName) || "";
     setValue(`salesItems.${index}.nozzle`, nozzleId, { shouldDirty: true, shouldValidate: true });
+    const fuelType = nozzleNameToFuelType.get(nozzleName) || "";
+    setValue(`salesItems.${index}.fuelType`, fuelType, { shouldDirty: true, shouldValidate: true });
   }
 
-  const computedSoldLiters = Math.max(0, Number(watchedClosingMeterReading || 0) - Number(watchedOpeningMeterReading || 0));
-  const computedTotalSaleAmount = computedSoldLiters * Number(watchedFuelPricePerLiter || 0);
-  const computedPendingAmount = Math.max(computedTotalSaleAmount - Number(watchedAmountReceived || 0), 0);
+  const totalSoldLiters = (watchedSalesItems || []).reduce((sum, item) => {
+    const soldLiters = Math.max(0, Number(item?.closingMeterReading || 0) - Number(item?.openingMeterReading || 0));
+    return sum + soldLiters;
+  }, 0);
 
-  const salesSummary = (watchedSalesItems || []).reduce(
-    (summary, item) => {
-      const soldLiters = Math.max(0, Number(item?.closingMeterReading || 0) - Number(item?.openingMeterReading || 0));
-      const lineTotal = soldLiters * Number(item?.fuelPricePerLiter || 0);
-      return {
-        totalSoldLiters: summary.totalSoldLiters + soldLiters,
-        totalAmount: summary.totalAmount + lineTotal,
-        totalReceived: summary.totalReceived + Number(item?.amountReceived || 0),
-        totalPending: summary.totalPending + Math.max(lineTotal - Number(item?.amountReceived || 0), 0),
-      };
-    },
-    { totalSoldLiters: 0, totalAmount: 0, totalReceived: 0, totalPending: 0 },
-  );
+  const totalAmount = (watchedSalesItems || []).reduce((sum, item) => {
+    const soldLiters = Math.max(0, Number(item?.closingMeterReading || 0) - Number(item?.openingMeterReading || 0));
+    return sum + soldLiters * Number(item?.fuelPricePerLiter || 0);
+  }, 0);
+
+  const totalReceived = Number(watchedAmountReceived || 0);
+  const totalPending = Math.max(totalAmount - totalReceived, 0);
+
+  const salesSummary = {
+    totalSoldLiters,
+    totalAmount,
+    totalReceived,
+    totalPending,
+  };
+
+  const computedTotalSaleAmount = salesSummary.totalAmount;
+  const computedPendingAmount = Math.max(salesSummary.totalAmount - Number(watchedAmountReceived || 0), 0);
 
   useEffect(() => {
     if (config.endpoint === "fuel-sales") {
@@ -145,8 +156,6 @@ export function ModulePage({ resource }) {
           openingMeterReading: 0,
           closingMeterReading: 0,
           fuelPricePerLiter: 0,
-          amountReceived: 0,
-          notes: "",
         },
       ]);
     }
@@ -294,8 +303,6 @@ export function ModulePage({ resource }) {
           openingMeterReading: 0,
           closingMeterReading: 0,
           fuelPricePerLiter: 0,
-          amountReceived: 0,
-          notes: "",
         },
       ];
       salesItemsFieldArray.replace(defaultSalesItems);
@@ -321,29 +328,20 @@ export function ModulePage({ resource }) {
   async function onSubmit(values) {
     setSaving(true);
     try {
-      console.log("Submitting form with values:", values);
+      
       const method = editing ? "PATCH" : "POST";
       const url = editing ? `/api/${config.endpoint}?id=${editing._id}` : `/api/${config.endpoint}`;
-      console.log(values,url,method)
+      
       const resolvedUser = currentUser || (await fetchCurrentUser());
       const selectedPumpId = resolvedUser?.activePumpId || resolvedUser?.pumpId || "";
       let body = pumpScopedResources.has(resource) && selectedPumpId ? { ...values, pumpId: selectedPumpId } : values;
 
+        // fuel-sales already sends grouped salesItems and total amountReceived at the sale level.
       if (resource === "fuel-sales" && values.salesItems && values.salesItems.length) {
-        if (editing) {
-          const [item] = values.salesItems;
-          body = {
-            ...item,
-            date: values.date,
-            notes: values.notes,
-            pumpId: selectedPumpId,
-          };
-        } else {
-          body = {
-            ...values,
-            pumpId: selectedPumpId,
-          };
-        }
+        body = {
+          ...values,
+          pumpId: selectedPumpId,
+        };
       }
 
       const response = await fetch(url, {
@@ -351,10 +349,17 @@ export function ModulePage({ resource }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const payload = await response.json();
+      const payloadText = await response.text();
+      let payload = null;
+      try {
+        payload = JSON.parse(payloadText);
+      } catch {
+        payload = null;
+      }
 
       if (!response.ok) {
-        throw new Error(payload.message || "Unable to save record");
+        const message = payload?.message || payloadText || "Unable to save record";
+        throw new Error(message);
       }
 
       toast.success(editing ? "Record updated" : "Record created");
@@ -680,8 +685,6 @@ export function ModulePage({ resource }) {
                             openingMeterReading: 0,
                             closingMeterReading: 0,
                             fuelPricePerLiter: 0,
-                            amountReceived: 0,
-                            notes: "",
                           })}
                           className="inline-flex items-center gap-2 rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
                         >
@@ -694,7 +697,6 @@ export function ModulePage({ resource }) {
                           const item = watchedSalesItems?.[index] || {};
                           const soldLiters = Math.max(0, Number(item.closingMeterReading || 0) - Number(item.openingMeterReading || 0));
                           const lineTotal = soldLiters * Number(item.fuelPricePerLiter || 0);
-                          const linePending = Math.max(lineTotal - Number(item.amountReceived || 0), 0);
 
                           return (
                             <div key={field.id} className="rounded-3xl border border-slate-200/70 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/5">
@@ -751,14 +753,12 @@ export function ModulePage({ resource }) {
                                     control={control}
                                     defaultValue={item.fuelType || "Petrol"}
                                     render={({ field }) => (
-                                      <select
+                                      <input
                                         {...field}
-                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
-                                      >
-                                        {(dynamicOptions.fuelType || dynamicOptions.products || []).map((option) => (
-                                          <option key={option.value} value={option.value}>{option.label}</option>
-                                        ))}
-                                      </select>
+                                        readOnly
+                                        disabled
+                                        className="w-full rounded-2xl border border-slate-300/70 bg-slate-100/80 px-4 py-3 text-sm outline-none cursor-not-allowed transition dark:border-white/10 dark:bg-white/5"
+                                      />
                                     )}
                                   />
                                   {form.formState.errors?.salesItems?.[index]?.fuelType ? (
@@ -805,60 +805,6 @@ export function ModulePage({ resource }) {
                                     <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.fuelPricePerLiter?.message}</span>
                                   ) : null}
                                 </label>
-                                <label className="space-y-2">
-                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Amount Received</span>
-                                  <Controller
-                                    name={`salesItems.${index}.amountReceived`}
-                                    control={control}
-                                    defaultValue={item.amountReceived}
-                                    render={({ field }) => (
-                                      <input
-                                        {...field}
-                                        type="number"
-                                        step="any"
-                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
-                                      />
-                                    )}
-                                  />
-                                  {form.formState.errors?.salesItems?.[index]?.amountReceived ? (
-                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.amountReceived?.message}</span>
-                                  ) : null}
-                                </label>
-                              </div>
-                              <div className="mt-4 grid gap-3 xl:grid-cols-2">
-                                <label className="space-y-2">
-                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Item Notes</span>
-                                  <Controller
-                                    name={`salesItems.${index}.notes`}
-                                    control={control}
-                                    defaultValue={item.notes}
-                                    render={({ field }) => (
-                                      <textarea
-                                        {...field}
-                                        rows={4}
-                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
-                                      />
-                                    )}
-                                  />
-                                  {form.formState.errors?.salesItems?.[index]?.notes ? (
-                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.notes?.message}</span>
-                                  ) : null}
-                                </label>
-                                <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-4 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200">
-                                  <div className="mb-2 text-xs uppercase tracking-[0.25em] text-slate-500">Line summary</div>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span>Liters</span>
-                                    <span>{formatNumber(soldLiters)}</span>
-                                  </div>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span>Total</span>
-                                    <span>{formatCurrency(lineTotal)}</span>
-                                  </div>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span>Pending</span>
-                                    <span>{formatCurrency(linePending)}</span>
-                                  </div>
-                                </div>
                               </div>
                               <div className="mt-4 flex items-center justify-end">
                                 <button
@@ -883,9 +829,9 @@ export function ModulePage({ resource }) {
                           error={form.formState.errors.date}
                         />
                         <FormField
-                          field={{ name: "notes", label: "Notes", type: "textarea" }}
+                          field={{ name: "amountReceived", label: "Amount Received", type: "number" }}
                           register={form.register}
-                          error={form.formState.errors.notes}
+                          error={form.formState.errors.amountReceived}
                         />
                       </div>
 
@@ -1100,7 +1046,17 @@ function FormField({ field, options, register, error }) {
 
 function mapRecordToForm(record, defaults) {
   const output = { ...defaults };
-  if (record?.nozzleName !== undefined && Array.isArray(output.salesItems)) {
+  if (Array.isArray(record?.salesItems) && record.salesItems.length && Array.isArray(output.salesItems)) {
+    output.salesItems = record.salesItems.map((item) => ({
+      nozzleName: item.nozzleName || "",
+      machineName: item.machineName || "",
+      nozzle: item.nozzle || "",
+      fuelType: item.fuelType || "Petrol",
+      openingMeterReading: item.openingMeterReading || 0,
+      closingMeterReading: item.closingMeterReading || 0,
+      fuelPricePerLiter: item.fuelPricePerLiter || 0,
+    }));
+  } else if (record?.nozzleName !== undefined && Array.isArray(output.salesItems)) {
     output.salesItems = [
       {
         nozzleName: record.nozzleName || "",
@@ -1110,8 +1066,6 @@ function mapRecordToForm(record, defaults) {
         openingMeterReading: record.openingMeterReading || 0,
         closingMeterReading: record.closingMeterReading || 0,
         fuelPricePerLiter: record.fuelPricePerLiter || 0,
-        amountReceived: record.amountReceived || 0,
-        notes: record.notes || "",
       },
     ];
   }

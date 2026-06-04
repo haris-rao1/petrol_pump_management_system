@@ -148,54 +148,87 @@ async function createRecord(resource, body, user, session, pumpId) {
       return record;
     }
     case "fuel-sales": {
+      const amountReceivedValue = Number(body.amountReceived);
+      const amountReceived = Number.isFinite(amountReceivedValue) ? Math.max(amountReceivedValue, 0) : 0;
+
       if (Array.isArray(body.salesItems) && body.salesItems.length) {
-        const createdRecords = [];
+        let totalSoldLiters = 0;
+        let totalSaleAmount = 0;
+        let totalWeightedPrice = 0;
+        let firstItem = null;
+        const salesItems = [];
+        const fuelTypes = new Set();
+
         for (const item of body.salesItems) {
           const itemBody = {
             ...item,
             date: body.date || item.date,
-            notes: item.notes || body.notes || "",
           };
           const fuelSaleTotals = getFuelSaleTotals(itemBody);
-          const { soldLiters, fuelPricePerLiter, totalSaleAmount, amountReceived, pendingAmount } = fuelSaleTotals;
+          const { soldLiters, fuelPricePerLiter, totalSaleAmount: itemTotal } = fuelSaleTotals;
+
           await decreaseTankStock(itemBody.fuelType, soldLiters, session, pumpId);
 
-          const nozzleName = itemBody.nozzleName || itemBody.nozzle || "";
-          const recordData = {
-            ...itemBody,
-            fuelPricePerLiter,
-            nozzleName,
-            soldLiters,
-            totalSaleAmount,
-            amountReceived,
-            pendingAmount,
-            date: new Date(itemBody.date),
-            createdBy: user._id,
-            pumpId: pumpId || null,
-          };
-
           const nozzleId = parseObjectId(itemBody.nozzle);
-          if (nozzleId) {
-            recordData.nozzle = nozzleId;
-          } else {
-            delete recordData.nozzle;
-          }
-
-          const record = new model(recordData);
-          await record.save(session ? { session } : {});
-
           if (nozzleId) {
             await updateNozzleReading(nozzleId, itemBody.closingMeterReading, session, pumpId);
           }
 
-          createdRecords.push(record);
+          salesItems.push({
+            nozzle: nozzleId || undefined,
+            nozzleName: itemBody.nozzleName || itemBody.nozzle || "",
+            machineName: itemBody.machineName || "",
+            fuelType: itemBody.fuelType || "",
+            openingMeterReading: itemBody.openingMeterReading,
+            closingMeterReading: itemBody.closingMeterReading,
+            soldLiters,
+            fuelPricePerLiter,
+            totalSaleAmount: itemTotal,
+          });
+
+          totalSoldLiters += soldLiters;
+          totalSaleAmount += itemTotal;
+          totalWeightedPrice += soldLiters * fuelPricePerLiter;
+          fuelTypes.add(itemBody.fuelType);
+          if (!firstItem) {
+            firstItem = itemBody;
+          }
         }
 
-        return createdRecords;
+        const averagePrice = totalSoldLiters > 0 ? totalWeightedPrice / totalSoldLiters : firstItem?.fuelPricePerLiter || 0;
+        const summaryFuelType = fuelTypes.size === 1 ? firstItem?.fuelType || "" : "Mixed";
+        const recordData = {
+          ...body,
+          salesItems,
+          fuelPricePerLiter: averagePrice,
+          nozzleName: firstItem?.nozzleName || firstItem?.nozzle || "Batch",
+          machineName: firstItem?.machineName || "",
+          fuelType: summaryFuelType,
+          openingMeterReading: firstItem?.openingMeterReading || 0,
+          closingMeterReading: firstItem?.closingMeterReading || 0,
+          soldLiters: totalSoldLiters,
+          totalSaleAmount,
+          amountReceived,
+          pendingAmount: Math.max(totalSaleAmount - amountReceived, 0),
+          date: new Date(body.date),
+          createdBy: user._id,
+          pumpId: pumpId || null,
+        };
+
+        const firstNozzleId = parseObjectId(firstItem?.nozzle);
+        if (firstNozzleId) {
+          recordData.nozzle = firstNozzleId;
+        } else {
+          delete recordData.nozzle;
+        }
+
+        const record = new model(recordData);
+        await record.save(session ? { session } : {});
+        return record;
       }
 
       const fuelSaleTotals = getFuelSaleTotals(body);
-      const { soldLiters, fuelPricePerLiter, totalSaleAmount, amountReceived, pendingAmount } = fuelSaleTotals;
+      const { soldLiters, fuelPricePerLiter, totalSaleAmount, pendingAmount } = fuelSaleTotals;
       await decreaseTankStock(body.fuelType, soldLiters, session, pumpId);
 
       const nozzleName = body.nozzleName || body.nozzle || "";
@@ -225,8 +258,6 @@ async function createRecord(resource, body, user, session, pumpId) {
       if (nozzleId) {
         await updateNozzleReading(nozzleId, body.closingMeterReading, session, pumpId);
       }
-
-      // paymentType and customer handled via dedicated `payments` resource
 
       return record;
     }
@@ -339,12 +370,44 @@ async function updateRecord(resource, id, body, session, pumpId) {
     body.password = await bcrypt.hash(body.password, 12);
   }
   if (resource === "fuel-sales") {
-    const fuelSaleTotals = getFuelSaleTotals(body);
-    body.soldLiters = fuelSaleTotals.soldLiters;
-    body.fuelPricePerLiter = fuelSaleTotals.fuelPricePerLiter;
-    body.totalSaleAmount = fuelSaleTotals.totalSaleAmount;
-    body.amountReceived = fuelSaleTotals.amountReceived;
-    body.pendingAmount = fuelSaleTotals.pendingAmount;
+    if (Array.isArray(body.salesItems) && body.salesItems.length) {
+      let totalSoldLiters = 0;
+      let totalSaleAmount = 0;
+      let totalWeightedPrice = 0;
+      let firstItem = null;
+      const fuelTypes = new Set();
+      const amountReceivedValue = Number(body.amountReceived);
+      const amountReceived = Number.isFinite(amountReceivedValue) ? Math.max(amountReceivedValue, 0) : 0;
+
+      for (const item of body.salesItems) {
+        const fuelSaleTotals = getFuelSaleTotals(item);
+        totalSoldLiters += fuelSaleTotals.soldLiters;
+        totalSaleAmount += fuelSaleTotals.totalSaleAmount;
+        totalWeightedPrice += fuelSaleTotals.soldLiters * fuelSaleTotals.fuelPricePerLiter;
+        fuelTypes.add(item.fuelType);
+        if (!firstItem) {
+          firstItem = item;
+        }
+      }
+
+      body.soldLiters = totalSoldLiters;
+      body.fuelPricePerLiter = totalSoldLiters > 0 ? totalWeightedPrice / totalSoldLiters : firstItem?.fuelPricePerLiter || 0;
+      body.totalSaleAmount = totalSaleAmount;
+      body.amountReceived = amountReceived;
+      body.pendingAmount = Math.max(totalSaleAmount - amountReceived, 0);
+      body.nozzleName = firstItem?.nozzleName || firstItem?.nozzle || "Batch";
+      body.machineName = firstItem?.machineName || "";
+      body.fuelType = fuelTypes.size === 1 ? firstItem?.fuelType || "" : "Mixed";
+      body.openingMeterReading = firstItem?.openingMeterReading || 0;
+      body.closingMeterReading = firstItem?.closingMeterReading || 0;
+    } else {
+      const fuelSaleTotals = getFuelSaleTotals(body);
+      body.soldLiters = fuelSaleTotals.soldLiters;
+      body.fuelPricePerLiter = fuelSaleTotals.fuelPricePerLiter;
+      body.totalSaleAmount = fuelSaleTotals.totalSaleAmount;
+      body.amountReceived = fuelSaleTotals.amountReceived;
+      body.pendingAmount = fuelSaleTotals.pendingAmount;
+    }
   }
   const options = { returnDocument: 'after' };
   if (session) options.session = session;
@@ -496,6 +559,9 @@ export async function POST(request, { params }) {
     } else {
       record = await createRecord(resource, body, user, null, pumpId);
     }
+  } catch (error) {
+    console.error("POST error:", error);
+    return failure(error?.message || "Unable to create record", 500);
   } finally {
     session.endSession();
   }
@@ -547,6 +613,9 @@ export async function PATCH(request, { params }) {
     } else {
       record = await updateRecord(resource, id, body, null, pumpId);
     }
+  } catch (error) {
+    console.error("PATCH error:", error);
+    return failure(error?.message || "Unable to update record", 500);
   } finally {
     session.endSession();
   }
@@ -583,25 +652,27 @@ export async function DELETE(request, { params }) {
   let deletedRecord = null;
 
   if (resource === "fuel-sales") {
-
     deletedRecord = await model.findOne(filter).lean();
-
   }
 
   await model.findOneAndDelete(filter);
 
-
-
   if (resource === "fuel-sales") {
-
-    const nozzleId = parseObjectId(deletedRecord?.nozzle?.toString?.());
-
-    if (nozzleId) {
-
-      await refreshNozzleReading(nozzleId, null, pumpId);
-
+    const nozzleIds = new Set();
+    if (Array.isArray(deletedRecord?.salesItems)) {
+      for (const item of deletedRecord.salesItems) {
+        const nozzleId = parseObjectId(item?.nozzle?.toString?.());
+        if (nozzleId) nozzleIds.add(String(nozzleId));
+      }
+    }
+    const topLevelNozzleId = parseObjectId(deletedRecord?.nozzle?.toString?.());
+    if (topLevelNozzleId) {
+      nozzleIds.add(String(topLevelNozzleId));
     }
 
+    await Promise.all(
+      [...nozzleIds].map((id) => refreshNozzleReading(parseObjectId(id), null, pumpId)),
+    );
   }
 
   return success({ deleted: true });

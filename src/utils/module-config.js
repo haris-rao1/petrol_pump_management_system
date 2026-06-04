@@ -71,7 +71,7 @@ export const moduleConfigs = {
     title: "Fuel Sales Management",
     description: "Enter manual meter readings and calculate sold liters automatically.",
     endpoint: "fuel-sales",
-    searchFields: ["nozzleName", "fuelType"],
+    searchFields: ["fuelType"],
     filters: [
       { name: "startDate", label: "Start Date", type: "date" },
       { name: "endDate", label: "End Date", type: "date" },
@@ -91,7 +91,6 @@ export const moduleConfigs = {
     ],
     columns: [
       { key: "date", label: "Date", formatter: formatDate },
-      { key: "nozzleName", label: "Nozzle" },
       { key: "fuelType", label: "Fuel" },
       { key: "soldLiters", label: "Sold Liters", formatter: formatRawNumber },
       { key: "totalSaleAmount", label: "Total Amount", formatter: (_, record) => formatCurrency(getFuelSaleTotalAmount(record)) },

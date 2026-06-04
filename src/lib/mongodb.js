@@ -12,7 +12,6 @@ if (!cached) {
 export async function connectMongo() {
   try {
     const MONGODB_URI = process.env.MONGODB_URI;
-    console.log("Connecting to MongoDB...")
     if (!MONGODB_URI) {
       throw new Error("Missing MONGODB_URI environment variable");
     }
@@ -28,7 +27,6 @@ export async function connectMongo() {
       });
     }
     cached.conn = await cached.promise;
-    console.log("Mongodb Connected")
     return cached.conn;
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
