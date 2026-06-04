@@ -8,6 +8,7 @@ const paymentSchema = new mongoose.Schema(
     customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", required: true },
     amount: { type: Number, required: true },
     method: { type: String, enum: PAYMENT_METHODS, default: "Cash" },
+    type: { type: String, enum: ["receive", "credit"], default: "receive" },
     note: { type: String, default: "" },
     date: { type: Date, required: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

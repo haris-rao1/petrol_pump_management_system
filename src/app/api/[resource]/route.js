@@ -44,6 +44,26 @@ function getFuelSaleTotals(body) {
   };
 }
 
+async function refreshNozzleReading(nozzleId, session, pumpId) {
+  if (!nozzleId) {
+    return null;
+  }
+
+  const fuelSaleModel = resourceModelMap["fuel-sales"];
+  const latestSaleQuery = fuelSaleModel.findOne({ nozzle: nozzleId });
+  if (pumpId) {
+    latestSaleQuery.where({ pumpId });
+  }
+  latestSaleQuery.sort({ closingMeterReading: -1 });
+  if (session) {
+    latestSaleQuery.session(session);
+  }
+
+  const latest = await latestSaleQuery.lean();
+  const meterReading = latest ? latest.closingMeterReading : 0;
+  return updateNozzleReading(nozzleId, meterReading, session, pumpId);
+}
+
 function buildQuery(resource, searchParams) {
   const config = getModuleConfig(resource);
   const query = {};
@@ -58,9 +78,35 @@ function buildQuery(resource, searchParams) {
     for (const filter of config.filters) {
       const value = searchParams.get(filter.name);
       if (value) {
+        // Special handling for date range filters
+        if (filter.name === "startDate" || filter.name === "endDate") {
+          // we'll add date range after loop
+          continue;
+        }
         query[filter.name] = value;
       }
     }
+  }
+
+  // handle explicit date range query params (startDate/endDate)
+  const start = searchParams.get("startDate");
+  const end = searchParams.get("endDate");
+  if (start || end) {
+    const startDate = start ? new Date(start) : null;
+    const endDate = end ? new Date(end) : null;
+    const dateQuery = {};
+    if (startDate && !Number.isNaN(startDate.getTime())) dateQuery.$gte = startDate;
+    if (endDate && !Number.isNaN(endDate.getTime())) dateQuery.$lte = endDate;
+    if (Object.keys(dateQuery).length) {
+      query.date = dateQuery;
+    }
+  }
+
+  // allow filtering by customer id for resources like payments
+  const customerParam = searchParams.get("customer");
+  if (customerParam) {
+    const cid = parseObjectId(customerParam) || customerParam;
+    if (cid) query.customer = cid;
   }
 
   return query;
@@ -102,6 +148,52 @@ async function createRecord(resource, body, user, session, pumpId) {
       return record;
     }
     case "fuel-sales": {
+      if (Array.isArray(body.salesItems) && body.salesItems.length) {
+        const createdRecords = [];
+        for (const item of body.salesItems) {
+          const itemBody = {
+            ...item,
+            date: body.date || item.date,
+            notes: item.notes || body.notes || "",
+          };
+          const fuelSaleTotals = getFuelSaleTotals(itemBody);
+          const { soldLiters, fuelPricePerLiter, totalSaleAmount, amountReceived, pendingAmount } = fuelSaleTotals;
+          await decreaseTankStock(itemBody.fuelType, soldLiters, session, pumpId);
+
+          const nozzleName = itemBody.nozzleName || itemBody.nozzle || "";
+          const recordData = {
+            ...itemBody,
+            fuelPricePerLiter,
+            nozzleName,
+            soldLiters,
+            totalSaleAmount,
+            amountReceived,
+            pendingAmount,
+            date: new Date(itemBody.date),
+            createdBy: user._id,
+            pumpId: pumpId || null,
+          };
+
+          const nozzleId = parseObjectId(itemBody.nozzle);
+          if (nozzleId) {
+            recordData.nozzle = nozzleId;
+          } else {
+            delete recordData.nozzle;
+          }
+
+          const record = new model(recordData);
+          await record.save(session ? { session } : {});
+
+          if (nozzleId) {
+            await updateNozzleReading(nozzleId, itemBody.closingMeterReading, session, pumpId);
+          }
+
+          createdRecords.push(record);
+        }
+
+        return createdRecords;
+      }
+
       const fuelSaleTotals = getFuelSaleTotals(body);
       const { soldLiters, fuelPricePerLiter, totalSaleAmount, amountReceived, pendingAmount } = fuelSaleTotals;
       await decreaseTankStock(body.fuelType, soldLiters, session, pumpId);
@@ -150,11 +242,13 @@ async function createRecord(resource, body, user, session, pumpId) {
     case "payments": {
       const customerQuery = parseObjectId(body.customer) ? { _id: body.customer, pumpId: pumpId || null } : { name: body.customer, pumpId: pumpId || null };
       const customer = await Customer.findOne(customerQuery).session(session || null);
+      const paymentType = body.type === "credit" ? "credit" : "receive";
 
       const payment = new model({
         customer: customer?._id,
         amount: ensureFiniteNumber(body.amount, "amount"),
         method: body.method,
+        type: paymentType,
         note: body.note,
         date: new Date(body.date),
         createdBy: user._id,
@@ -163,7 +257,12 @@ async function createRecord(resource, body, user, session, pumpId) {
       await payment.save(session ? { session } : {});
 
       if (customer) {
-        customer.pendingBalance = Math.max(0, Number(customer.pendingBalance || 0) - Number(body.amount));
+        const amt = Number(payment.amount || 0);
+        if (paymentType === "receive") {
+          customer.pendingBalance = Math.max(0, Number(customer.pendingBalance || 0) - amt);
+        } else {
+          customer.pendingBalance = Number(customer.pendingBalance || 0) + amt;
+        }
         await customer.save(session ? { session } : {});
       }
 
@@ -250,7 +349,23 @@ async function updateRecord(resource, id, body, session, pumpId) {
   const options = { returnDocument: 'after' };
   if (session) options.session = session;
   const filter = pumpScopedResources.has(resource) && pumpId ? { _id: id, pumpId } : { _id: id };
+  let existingSale = null;
+  if (resource === "fuel-sales") {
+    existingSale = await model.findOne(filter).lean();
+  }
   const updated = await model.findOneAndUpdate(filter, body, options);
+
+  if (resource === "fuel-sales") {
+    const oldNozzleId = parseObjectId(existingSale?.nozzle?.toString?.());
+    const newNozzleId = parseObjectId(body.nozzle);
+    if (newNozzleId) {
+      await updateNozzleReading(newNozzleId, body.closingMeterReading, session, pumpId);
+    }
+    if (oldNozzleId && (!newNozzleId || String(oldNozzleId) !== String(newNozzleId))) {
+      await refreshNozzleReading(oldNozzleId, session, pumpId);
+    }
+  }
+
   if (resource === "users") {
     if (updated?.password) {
       delete updated.password;
@@ -464,6 +579,30 @@ export async function DELETE(request, { params }) {
     return pumpRequirementError;
   }
   const filter = pumpScopedResources.has(resource) && pumpId ? { _id: id, pumpId } : { _id: id };
+
+  let deletedRecord = null;
+
+  if (resource === "fuel-sales") {
+
+    deletedRecord = await model.findOne(filter).lean();
+
+  }
+
   await model.findOneAndDelete(filter);
+
+
+
+  if (resource === "fuel-sales") {
+
+    const nozzleId = parseObjectId(deletedRecord?.nozzle?.toString?.());
+
+    if (nozzleId) {
+
+      await refreshNozzleReading(nozzleId, null, pumpId);
+
+    }
+
+  }
+
   return success({ deleted: true });
 }

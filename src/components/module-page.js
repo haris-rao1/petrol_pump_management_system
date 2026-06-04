@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useEffect, useMemo, useState } from "react";
+import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -34,9 +34,20 @@ export function ModulePage({ resource }) {
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
   const [dynamicOptions, setDynamicOptions] = useState({});
+  const [nozzleOptions, setNozzleOptions] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [customerModalOpen, setCustomerModalOpen] = useState(false);
+  const [customerModalType, setCustomerModalType] = useState("receive");
+  const [customerModalRecord, setCustomerModalRecord] = useState(null);
+  const [customerModalAmount, setCustomerModalAmount] = useState("");
+  const [customerModalMethod, setCustomerModalMethod] = useState("Cash");
+  const [customerModalNote, setCustomerModalNote] = useState("");
+  const [customerHistoryOpen, setCustomerHistoryOpen] = useState(false);
+  const [customerHistoryLoading, setCustomerHistoryLoading] = useState(false);
+  const [customerHistory, setCustomerHistory] = useState([]);
+  const [customerHistoryRecord, setCustomerHistoryRecord] = useState(null);
   const selectedPumpId = currentUser?.activePumpId || currentUser?.pumpId || "";
 
   const form = useForm({
@@ -45,15 +56,55 @@ export function ModulePage({ resource }) {
   });
 
   const { setValue, control } = form;
+  const salesItemsFieldArray = useFieldArray({ control, name: "salesItems" });
+  const watchedSalesItems = useWatch({ control, name: "salesItems" });
+  const nozzleNameToMachine = useMemo(
+    () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, item.machineName || ""])),
+    [nozzleOptions],
+  );
+  const nozzleNameToReading = useMemo(
+    () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, Number(item.currentMeterReading || 0)])),
+    [nozzleOptions],
+  );
+  const nozzleNameToId = useMemo(
+    () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, String(item._id)])),
+    [nozzleOptions],
+  );
   const watchedOpeningMeterReading = useWatch({ control, name: "openingMeterReading" });
   const watchedClosingMeterReading = useWatch({ control, name: "closingMeterReading" });
   const watchedFuelPricePerLiter = useWatch({ control, name: "fuelPricePerLiter" });
   const watchedAmountReceived = useWatch({ control, name: "amountReceived" });
   const watchedCustomer = useWatch({ control, name: "customer" });
 
+  function setSalesItemNozzleName(index, nozzleName) {
+    setValue(`salesItems.${index}.nozzleName`, nozzleName, { shouldDirty: true, shouldValidate: true });
+    const machineName = nozzleNameToMachine.get(nozzleName) || "";
+    setValue(`salesItems.${index}.machineName`, machineName, { shouldDirty: true, shouldValidate: true });
+    const openingReading = nozzleNameToReading.get(nozzleName);
+    if (openingReading !== undefined) {
+      setValue(`salesItems.${index}.openingMeterReading`, openingReading, { shouldDirty: true, shouldValidate: true });
+    }
+    const nozzleId = nozzleNameToId.get(nozzleName) || "";
+    setValue(`salesItems.${index}.nozzle`, nozzleId, { shouldDirty: true, shouldValidate: true });
+  }
+
   const computedSoldLiters = Math.max(0, Number(watchedClosingMeterReading || 0) - Number(watchedOpeningMeterReading || 0));
   const computedTotalSaleAmount = computedSoldLiters * Number(watchedFuelPricePerLiter || 0);
   const computedPendingAmount = Math.max(computedTotalSaleAmount - Number(watchedAmountReceived || 0), 0);
+
+  const salesSummary = (watchedSalesItems || []).reduce(
+    (summary, item) => {
+      const soldLiters = Math.max(0, Number(item?.closingMeterReading || 0) - Number(item?.openingMeterReading || 0));
+      const lineTotal = soldLiters * Number(item?.fuelPricePerLiter || 0);
+      return {
+        totalSoldLiters: summary.totalSoldLiters + soldLiters,
+        totalAmount: summary.totalAmount + lineTotal,
+        totalReceived: summary.totalReceived + Number(item?.amountReceived || 0),
+        totalPending: summary.totalPending + Math.max(lineTotal - Number(item?.amountReceived || 0), 0),
+      };
+    },
+    { totalSoldLiters: 0, totalAmount: 0, totalReceived: 0, totalPending: 0 },
+  );
 
   useEffect(() => {
     if (config.endpoint === "fuel-sales") {
@@ -82,6 +133,24 @@ export function ModulePage({ resource }) {
       setShowCustomerDropdown(false);
     }
   }, [config.endpoint, watchedCustomer]);
+
+  useEffect(() => {
+    if (resource === "fuel-sales" && salesItemsFieldArray.fields.length === 0) {
+      salesItemsFieldArray.replace(defaults.salesItems || [
+        {
+          nozzleName: "",
+          machineName: "",
+          nozzle: "",
+          fuelType: "Petrol",
+          openingMeterReading: 0,
+          closingMeterReading: 0,
+          fuelPricePerLiter: 0,
+          amountReceived: 0,
+          notes: "",
+        },
+      ]);
+    }
+  }, [resource, salesItemsFieldArray, defaults.salesItems]);
 
   function selectCustomer(customer) {
     setValue("customer", customer.name, { shouldDirty: true });
@@ -159,10 +228,12 @@ export function ModulePage({ resource }) {
             if (!response.ok) {
               throw new Error(payload.message || "Unable to load nozzles");
             }
-            nextOptions[field.name] = (payload.data?.items || []).map((item) => ({
+            const nozzleItems = payload.data?.items || [];
+            nextOptions[field.name] = nozzleItems.map((item) => ({
               label: `${item.nozzleName}${item.machineName ? ` (${item.machineName})` : ""}`,
               value: item.nozzleName,
             }));
+            setNozzleOptions(nozzleItems);
           }
         }),
       );
@@ -213,23 +284,68 @@ export function ModulePage({ resource }) {
   function openCreateModal() {
     setEditing(null);
     form.reset(defaults);
+    if (resource === "fuel-sales") {
+      const defaultSalesItems = defaults.salesItems || [
+        {
+          nozzleName: "",
+          machineName: "",
+          nozzle: "",
+          fuelType: "Petrol",
+          openingMeterReading: 0,
+          closingMeterReading: 0,
+          fuelPricePerLiter: 0,
+          amountReceived: 0,
+          notes: "",
+        },
+      ];
+      salesItemsFieldArray.replace(defaultSalesItems);
+    }
     setOpen(true);
   }
 
   function openEditModal(record) {
     setEditing(record);
-    form.reset(mapRecordToForm(record, defaults));
+    const formValues = mapRecordToForm(record, defaults);
+    form.reset(formValues);
+    if (resource === "fuel-sales") {
+      salesItemsFieldArray.replace(formValues.salesItems || []);
+    }
     setOpen(true);
+  }
+
+  function onSubmitError(errors) {
+    console.warn("Form submit validation errors:", errors);
+    toast.error("Please fix the highlighted fields before submitting.");
   }
 
   async function onSubmit(values) {
     setSaving(true);
     try {
+      console.log("Submitting form with values:", values);
       const method = editing ? "PATCH" : "POST";
       const url = editing ? `/api/${config.endpoint}?id=${editing._id}` : `/api/${config.endpoint}`;
+      console.log(values,url,method)
       const resolvedUser = currentUser || (await fetchCurrentUser());
       const selectedPumpId = resolvedUser?.activePumpId || resolvedUser?.pumpId || "";
-      const body = pumpScopedResources.has(resource) && selectedPumpId ? { ...values, pumpId: selectedPumpId } : values;
+      let body = pumpScopedResources.has(resource) && selectedPumpId ? { ...values, pumpId: selectedPumpId } : values;
+
+      if (resource === "fuel-sales" && values.salesItems && values.salesItems.length) {
+        if (editing) {
+          const [item] = values.salesItems;
+          body = {
+            ...item,
+            date: values.date,
+            notes: values.notes,
+            pumpId: selectedPumpId,
+          };
+        } else {
+          body = {
+            ...values,
+            pumpId: selectedPumpId,
+          };
+        }
+      }
+
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -273,6 +389,69 @@ export function ModulePage({ resource }) {
       fetchRecords();
     } catch (error) {
       toast.error(error.message);
+    }
+  }
+
+  function openCustomerPaymentModal(record, type = "receive") {
+    setCustomerModalRecord(record);
+    setCustomerModalType(type);
+    setCustomerModalAmount("");
+    setCustomerModalMethod("Cash");
+    setCustomerModalNote("");
+    setCustomerModalOpen(true);
+  }
+
+  async function submitCustomerPayment() {
+    const amount = Number(customerModalAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return toast.error("Enter a valid amount");
+    }
+
+    try {
+      const resolvedUser = currentUser || (await fetchCurrentUser());
+      const selectedPumpId = resolvedUser?.activePumpId || resolvedUser?.pumpId || "";
+      const body = {
+        customer: String(customerModalRecord?._id),
+        amount,
+        method: customerModalMethod,
+        note: customerModalNote,
+        date: new Date().toISOString().slice(0, 10),
+        type: customerModalType,
+      };
+      if (pumpScopedResources.has(resource) && selectedPumpId) {
+        body.pumpId = selectedPumpId;
+      }
+
+      const response = await fetch(`/api/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || "Unable to save payment");
+
+      toast.success(customerModalType === "receive" ? "Payment recorded" : "Credit recorded");
+      setCustomerModalOpen(false);
+      fetchRecords();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function showCustomerHistory(record) {
+    try {
+      setCustomerHistoryLoading(true);
+      setCustomerHistoryRecord(record);
+      const response = await fetch(`/api/payments?customer=${encodeURIComponent(String(record._id))}&limit=1000`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || "Unable to load history");
+      const items = payload.data?.items || payload.data || [];
+      setCustomerHistory(items);
+      setCustomerHistoryOpen(true);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setCustomerHistoryLoading(false);
     }
   }
 
@@ -343,30 +522,64 @@ export function ModulePage({ resource }) {
       </section>
 
       <section className="glass-panel rounded-4xl p-5">
-        <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
           <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/70 px-4 py-3 dark:bg-white/5">
             <Search className="h-4 w-4 text-slate-500" />
             <input value={search} onChange={(event) => { setPage(1); setSearch(event.target.value); }} placeholder="Search records" className="w-full bg-transparent outline-none placeholder:text-slate-400" />
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(config.filters || []).map((filter) => (
-              <label key={filter.name} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/70 px-4 py-3 dark:bg-white/5">
-                <Filter className="h-4 w-4 text-slate-500" />
-                <select
-                  value={filters[filter.name] || ""}
-                  onChange={(event) => {
-                    setPage(1);
-                    setFilters((current) => ({ ...current, [filter.name]: event.target.value }));
-                  }}
-                  className="w-full bg-transparent outline-none"
-                >
-                  {(filter.options || []).map((option) => (
-                    <option key={option || "all"} value={option}>{option || filter.label}</option>
-                  ))}
-                </select>
-              </label>
-            ))}
+          <div className="grid gap-3 sm:grid-cols-3">
+            {(config.filters || []).map((filter) => {
+              const dynOptions = dynamicOptions[filter.name] || [];
+              const hasOptions = (filter.options && filter.options.length) || (dynOptions && dynOptions.length);
+
+              return (
+                <label key={filter.name} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/70 px-4 py-3 dark:bg-white/5">
+                  <Filter className="h-4 w-4 text-slate-500" />
+                  {filter.type === "date" ? (
+                    <input
+                      type="date"
+                      value={filters[filter.name] || ""}
+                      onChange={(event) => {
+                        setPage(1);
+                        setFilters((current) => ({ ...current, [filter.name]: event.target.value }));
+                      }}
+                      placeholder={filter.label}
+                      className="w-full bg-transparent outline-none"
+                    />
+                  ) : hasOptions ? (
+                    <select
+                      value={filters[filter.name] || ""}
+                      onChange={(event) => {
+                        setPage(1);
+                        setFilters((current) => ({ ...current, [filter.name]: event.target.value }));
+                      }}
+                      className="w-full bg-transparent outline-none"
+                    >
+                      {/* static options */}
+                      {(filter.options || []).map((option) => (
+                        <option key={String(option || "all")} value={option}>{option || filter.label}</option>
+                      ))}
+                      {/* dynamic options (objects with label/value) */}
+                      {dynOptions.map((opt) => (
+                        <option key={String(opt.value || opt)} value={opt.value ?? opt}>{opt.label ?? opt}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={filters[filter.name] || ""}
+                      onChange={(event) => {
+                        setPage(1);
+                        setFilters((current) => ({ ...current, [filter.name]: event.target.value }));
+                      }}
+                      placeholder={filter.label}
+                      className="w-full bg-transparent outline-none"
+                    />
+                  )}
+                </label>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -403,6 +616,19 @@ export function ModulePage({ resource }) {
                           <Trash2 className="h-3.5 w-3.5" />
                           Delete
                         </button>
+                        {config.endpoint === "customers" && (
+                          <>
+                            <button onClick={() => openCustomerPaymentModal(record, 'receive')} className="inline-flex items-center gap-1 rounded-xl border border-slate-300/70 px-3 py-2 text-xs font-semibold hover:bg-white dark:border-white/10 dark:hover:bg-white/5">
+                              Receive
+                            </button>
+                            <button onClick={() => openCustomerPaymentModal(record, 'credit')} className="inline-flex items-center gap-1 rounded-xl border border-slate-300/70 px-3 py-2 text-xs font-semibold hover:bg-white dark:border-white/10 dark:hover:bg-white/5">
+                              Credit
+                            </button>
+                            <button onClick={() => showCustomerHistory(record)} className="inline-flex items-center gap-1 rounded-xl border border-slate-300/70 px-3 py-2 text-xs font-semibold hover:bg-white dark:border-white/10 dark:hover:bg-white/5">
+                              History
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -430,82 +656,410 @@ export function ModulePage({ resource }) {
             <div className="mb-5 flex items-center justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-(--brand)">{editing ? "Edit record" : "Create record"}</p>
-                <h2 className="text-2xl font-semibold">{editing ? `Update ${config.title}` : `New ${config.title}`}</h2>
+                <h2 className="text-2xl font-semibold">{editing ? `Update ${config.title}` : `${config.title}`}</h2>
               </div>
               <button onClick={() => setOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-4 py-2 text-sm dark:bg-white/5">Close</button>
             </div>
 
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 md:grid-cols-2">
-                {config.fields.map((field) => {
-                  if (config.endpoint === "payments" && field.name === "customer") {
-                    return (
-                      <div key={field.name} className="relative space-y-2">
-                        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">{field.label}</label>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
-                            placeholder={field.label}
-                            {...form.register(field.name)}
-                            onFocus={() => watchedCustomer && customerSearchResults.length > 0 && setShowCustomerDropdown(true)}
-                          />
-                          {showCustomerDropdown && customerSearchResults.length > 0 ? (
-                            <div className="absolute top-full left-0 right-0 z-10 mt-1 max-h-48 overflow-y-auto rounded-2xl border border-slate-300/70 bg-white/90 dark:border-white/10 dark:bg-slate-900">
-                              {customerSearchResults.map((customer) => (
-                                <button
-                                  key={customer._id}
-                                  type="button"
-                                  onClick={() => selectCustomer(customer)}
-                                  className="w-full px-4 py-3 text-left text-sm transition hover:bg-slate-100 dark:hover:bg-white/10"
-                                >
-                                  <div className="font-medium">{customer.name}</div>
-                                  <div className="text-xs text-slate-500">{customer.vehicleNumber || "No vehicle"}</div>
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                        {form.formState.errors[field.name] ? <span className="text-xs text-rose-500">{form.formState.errors[field.name].message}</span> : null}
-                      </div>
-                    );
-                  }
-                  return (
-                    <FormField
-                      key={field.name}
-                      field={field}
-                      options={field.optionsSource ? dynamicOptions[field.name] || [] : field.options || []}
-                      register={form.register}
-                      error={form.formState.errors[field.name]}
-                    />
-                  );
-                })}
-
+                    <form noValidate onSubmit={form.handleSubmit(onSubmit, onSubmitError)} className="grid gap-4 md:grid-cols-2">
                 {config.endpoint === "fuel-sales" ? (
-                  <div className="md:col-span-2 grid gap-4 rounded-3xl border border-slate-200/70 bg-slate-50/80 p-5 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200">
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div>
-                        <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Sold Liters</span>
-                        <p className="mt-2 text-lg font-semibold">{formatNumber(computedSoldLiters)}</p>
+                  <>
+                    <div className="md:col-span-2">
+                      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Batch nozzle sales</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Add one or more nozzle entries and submit them together.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => salesItemsFieldArray.append({
+                            nozzleName: "",
+                            machineName: "",
+                            nozzle: "",
+                            fuelType: "Petrol",
+                            openingMeterReading: 0,
+                            closingMeterReading: 0,
+                            fuelPricePerLiter: 0,
+                            amountReceived: 0,
+                            notes: "",
+                          })}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+                        >
+                          <Plus className="h-4 w-4" /> Add Nozzle
+                        </button>
                       </div>
-                      <div>
-                        <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Total Amount</span>
-                        <p className="mt-2 text-lg font-semibold">{formatCurrency(computedTotalSaleAmount)}</p>
-                      </div>
-                      <div>
-                        <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Pending Amount</span>
-                        <p className="mt-2 text-lg font-semibold">{formatCurrency(computedPendingAmount)}</p>
+
+                      <div className="space-y-4">
+                        {salesItemsFieldArray.fields.map((field, index) => {
+                          const item = watchedSalesItems?.[index] || {};
+                          const soldLiters = Math.max(0, Number(item.closingMeterReading || 0) - Number(item.openingMeterReading || 0));
+                          const lineTotal = soldLiters * Number(item.fuelPricePerLiter || 0);
+                          const linePending = Math.max(lineTotal - Number(item.amountReceived || 0), 0);
+
+                          return (
+                            <div key={field.id} className="rounded-3xl border border-slate-200/70 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/5">
+                              <div className="grid gap-3 xl:grid-cols-3">
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Nozzle Name</span>
+                                  <Controller
+                                    name={`salesItems.${index}.nozzleName`}
+                                    control={control}
+                                    defaultValue={item.nozzleName}
+                                    render={({ field }) => (
+                                      <select
+                                        {...field}
+                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                                        onChange={(event) => {
+                                          field.onChange(event);
+                                          setSalesItemNozzleName(index, event.target.value);
+                                        }}
+                                      >
+                                        <option value="">Select nozzle</option>
+                                        {(dynamicOptions.nozzleName || []).map((option) => (
+                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  />
+                                  {form.formState.errors?.salesItems?.[index]?.nozzleName ? (
+                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.nozzleName?.message}</span>
+                                  ) : null}
+                                </label>
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Machine</span>
+                                  <Controller
+                                    name={`salesItems.${index}.machineName`}
+                                    control={control}
+                                    defaultValue={item.machineName}
+                                    render={({ field }) => (
+                                      <input
+                                        {...field}
+                                        readOnly
+                                        disabled
+                                        className="w-full rounded-2xl border border-slate-300/70 bg-slate-100/80 px-4 py-3 text-sm outline-none transition cursor-not-allowed dark:border-white/10 dark:bg-white/5"
+                                      />
+                                    )}
+                                  />
+                                  {form.formState.errors?.salesItems?.[index]?.machineName ? (
+                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.machineName?.message}</span>
+                                  ) : null}
+                                </label>
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Fuel Type</span>
+                                  <Controller
+                                    name={`salesItems.${index}.fuelType`}
+                                    control={control}
+                                    defaultValue={item.fuelType || "Petrol"}
+                                    render={({ field }) => (
+                                      <select
+                                        {...field}
+                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                                      >
+                                        {(dynamicOptions.fuelType || dynamicOptions.products || []).map((option) => (
+                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  />
+                                  {form.formState.errors?.salesItems?.[index]?.fuelType ? (
+                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.fuelType?.message}</span>
+                                  ) : null}
+                                </label>
+                              </div>
+                              <div className="mt-4 grid gap-3 xl:grid-cols-3">
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Closing Meter Reading</span>
+                                  <Controller
+                                    name={`salesItems.${index}.closingMeterReading`}
+                                    control={control}
+                                    defaultValue={item.closingMeterReading}
+                                    render={({ field }) => (
+                                      <input
+                                        {...field}
+                                        type="number"
+                                        step="any"
+                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                                      />
+                                    )}
+                                  />
+                                  {form.formState.errors?.salesItems?.[index]?.closingMeterReading ? (
+                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.closingMeterReading?.message}</span>
+                                  ) : null}
+                                </label>
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Price Per Liter</span>
+                                  <Controller
+                                    name={`salesItems.${index}.fuelPricePerLiter`}
+                                    control={control}
+                                    defaultValue={item.fuelPricePerLiter}
+                                    render={({ field }) => (
+                                      <input
+                                        {...field}
+                                        type="number"
+                                        step="any"
+                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                                      />
+                                    )}
+                                  />
+                                  {form.formState.errors?.salesItems?.[index]?.fuelPricePerLiter ? (
+                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.fuelPricePerLiter?.message}</span>
+                                  ) : null}
+                                </label>
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Amount Received</span>
+                                  <Controller
+                                    name={`salesItems.${index}.amountReceived`}
+                                    control={control}
+                                    defaultValue={item.amountReceived}
+                                    render={({ field }) => (
+                                      <input
+                                        {...field}
+                                        type="number"
+                                        step="any"
+                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                                      />
+                                    )}
+                                  />
+                                  {form.formState.errors?.salesItems?.[index]?.amountReceived ? (
+                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.amountReceived?.message}</span>
+                                  ) : null}
+                                </label>
+                              </div>
+                              <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Item Notes</span>
+                                  <Controller
+                                    name={`salesItems.${index}.notes`}
+                                    control={control}
+                                    defaultValue={item.notes}
+                                    render={({ field }) => (
+                                      <textarea
+                                        {...field}
+                                        rows={4}
+                                        className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                                      />
+                                    )}
+                                  />
+                                  {form.formState.errors?.salesItems?.[index]?.notes ? (
+                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.notes?.message}</span>
+                                  ) : null}
+                                </label>
+                                <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-4 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200">
+                                  <div className="mb-2 text-xs uppercase tracking-[0.25em] text-slate-500">Line summary</div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span>Liters</span>
+                                    <span>{formatNumber(soldLiters)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span>Total</span>
+                                    <span>{formatCurrency(lineTotal)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span>Pending</span>
+                                    <span>{formatCurrency(linePending)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="mt-4 flex items-center justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => salesItemsFieldArray.remove(index)}
+                                  className="rounded-2xl border border-rose-300/70 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 dark:border-rose-400/30 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  </div>
-                ) : null}
+
+                    <div className="md:col-span-2 grid gap-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <FormField
+                          field={{ name: "date", label: "Date", type: "date" }}
+                          register={form.register}
+                          error={form.formState.errors.date}
+                        />
+                        <FormField
+                          field={{ name: "notes", label: "Notes", type: "textarea" }}
+                          register={form.register}
+                          error={form.formState.errors.notes}
+                        />
+                      </div>
+
+                      <div className="rounded-3xl border border-slate-200/70 bg-slate-50/80 p-5 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200">
+                        <div className="grid gap-3 sm:grid-cols-4">
+                          <div>
+                            <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Total Liters</span>
+                            <p className="mt-2 text-lg font-semibold">{formatNumber(salesSummary.totalSoldLiters)}</p>
+                          </div>
+                          <div>
+                            <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Total Amount</span>
+                            <p className="mt-2 text-lg font-semibold">{formatCurrency(salesSummary.totalAmount)}</p>
+                          </div>
+                          <div>
+                            <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Received</span>
+                            <p className="mt-2 text-lg font-semibold">{formatCurrency(salesSummary.totalReceived)}</p>
+                          </div>
+                          <div>
+                            <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Pending</span>
+                            <p className="mt-2 text-lg font-semibold">{formatCurrency(salesSummary.totalPending)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  config.fields.map((field) => {
+                    if (config.endpoint === "payments" && field.name === "customer") {
+                      return (
+                        <div key={field.name} className="relative space-y-2">
+                          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">{field.label}</label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                              placeholder={field.label}
+                              {...form.register(field.name)}
+                              onFocus={() => watchedCustomer && customerSearchResults.length > 0 && setShowCustomerDropdown(true)}
+                            />
+                            {showCustomerDropdown && customerSearchResults.length > 0 ? (
+                              <div className="absolute top-full left-0 right-0 z-10 mt-1 max-h-48 overflow-y-auto rounded-2xl border border-slate-300/70 bg-white/90 dark:border-white/10 dark:bg-slate-900">
+                                {customerSearchResults.map((customer) => (
+                                  <button
+                                    key={customer._id}
+                                    type="button"
+                                    onClick={() => selectCustomer(customer)}
+                                    className="w-full px-4 py-3 text-left text-sm transition hover:bg-slate-100 dark:hover:bg-white/10"
+                                  >
+                                    <div className="font-medium">{customer.name}</div>
+                                    <div className="text-xs text-slate-500">{customer.vehicleNumber || "No vehicle"}</div>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                          {form.formState.errors[field.name] ? <span className="text-xs text-rose-500">{form.formState.errors[field.name].message}</span> : null}
+                        </div>
+                      );
+                    }
+                    return (
+                      <FormField
+                        key={field.name}
+                        field={field}
+                        options={field.optionsSource ? dynamicOptions[field.name] || [] : field.options || []}
+                        register={form.register}
+                        error={form.formState.errors[field.name]}
+                      />
+                    );
+                  })
+                )}
 
                 <div className="md:col-span-2 flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-5 py-3 text-sm dark:bg-white/5">Cancel</button>
-                <button type="submit" disabled={saving} className="rounded-2xl bg-(--brand) px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-green-950/20 disabled:opacity-60">
+                <button
+                  type="submit"
+                  onClick={form.handleSubmit(onSubmit, onSubmitError)}
+                  disabled={saving}
+                  className="rounded-2xl bg-(--brand) px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-green-950/20 disabled:opacity-60"
+                >
                   {saving ? "Saving..." : editing ? "Update Record" : "Create Record"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+      {customerModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-8 backdrop-blur-sm">
+          <div className="glass-panel max-h-[90vh] w-full max-w-md overflow-y-auto rounded-4xl p-6">
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-(--brand)">Customer {customerModalType === "receive" ? "Payment" : "Credit"}</p>
+                <h2 className="text-2xl font-semibold">{customerModalType === "receive" ? "Receive Payment" : "Add Credit"}</h2>
+                <p className="text-sm text-slate-500">{customerModalRecord?.name || "Customer"}</p>
+              </div>
+              <button type="button" onClick={() => setCustomerModalOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-4 py-2 text-sm dark:bg-white/5">Close</button>
+            </div>
+            <div className="space-y-4">
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Amount</span>
+                <input
+                  value={customerModalAmount}
+                  onChange={(event) => setCustomerModalAmount(event.target.value)}
+                  type="number"
+                  step="any"
+                  placeholder="0.00"
+                  className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Payment Method</span>
+                <select
+                  value={customerModalMethod}
+                  onChange={(event) => setCustomerModalMethod(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                >
+                  <option value="Cash">Cash</option>
+                  <option value="Credit Card">Credit Card</option>
+                  <option value="Mobile Payment">Mobile Payment</option>
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Note</span>
+                <textarea
+                  value={customerModalNote}
+                  onChange={(event) => setCustomerModalNote(event.target.value)}
+                  rows={4}
+                  placeholder="Optional note"
+                  className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                />
+              </label>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setCustomerModalOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-5 py-3 text-sm dark:bg-white/5">Cancel</button>
+                <button type="button" onClick={submitCustomerPayment} className="rounded-2xl bg-(--brand) px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-green-950/20">Submit</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {customerHistoryOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-8 backdrop-blur-sm">
+          <div className="glass-panel max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-4xl p-6">
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-(--brand)">Customer history</p>
+                <h2 className="text-2xl font-semibold">{customerHistoryRecord?.name || "Customer"} history</h2>
+                <p className="text-sm text-slate-500">Payment and credit activity</p>
+              </div>
+              <button type="button" onClick={() => setCustomerHistoryOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-4 py-2 text-sm dark:bg-white/5">Close</button>
+            </div>
+            <div className="space-y-4">
+              {customerHistoryLoading ? (
+                <div className="rounded-3xl border border-slate-200/70 bg-slate-50/80 p-6 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-white/5">Loading history...</div>
+              ) : customerHistory.length === 0 ? (
+                <div className="rounded-3xl border border-slate-200/70 bg-slate-50/80 p-6 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-white/5">No payment or credit history found.</div>
+              ) : (
+                <div className="space-y-3">
+                  {customerHistory.map((item) => (
+                    <div key={item._id} className="rounded-3xl border border-slate-200/70 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/5">
+                      <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-slate-600 dark:text-slate-300">
+                        <span>{formatDate(item.date)}</span>
+                        <span className="rounded-full border border-slate-200/70 px-3 py-1 text-xs font-semibold uppercase text-slate-700 dark:border-white/10 dark:text-slate-200">{item.type || "receive"}</span>
+                        <span className="font-semibold">{formatCurrency(item.amount)}</span>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 text-sm text-slate-500 dark:text-slate-400">
+                        <div><span className="font-semibold text-slate-700 dark:text-slate-200">Method:</span> {item.method || "N/A"}</div>
+                        <div><span className="font-semibold text-slate-700 dark:text-slate-200">Note:</span> {item.note || "—"}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ) : null}
@@ -515,20 +1069,22 @@ export function ModulePage({ resource }) {
 
 function FormField({ field, options, register, error }) {
   const base = "w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[var(--brand)] dark:border-white/10 dark:bg-white/5";
+  const defaultValue = field.defaultValue;
 
   return (
     <label className={cn("space-y-2", field.type === "textarea" ? "md:col-span-2" : "") }>
       <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{field.label}</span>
       {field.type === "select" ? (
-        <select className={base} {...register(field.name)}>
+        <select defaultValue={defaultValue} className={base} {...register(field.name)}>
           {options.map((option) => (
             <option key={option.value || option} value={option.value || option}>{option.label || option || field.label}</option>
           ))}
         </select>
       ) : field.type === "textarea" ? (
-        <textarea rows={4} className={base} {...register(field.name)} />
+        <textarea defaultValue={defaultValue} rows={4} className={base} {...register(field.name)} />
       ) : (
         <input
+          defaultValue={defaultValue}
           type={field.type === "date" ? "date" : field.type || "text"}
           step={field.type === "number" ? "any" : undefined}
           className={cn(base, field.readOnly ? "cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/80" : "")}
@@ -544,7 +1100,26 @@ function FormField({ field, options, register, error }) {
 
 function mapRecordToForm(record, defaults) {
   const output = { ...defaults };
+  if (record?.nozzleName !== undefined && Array.isArray(output.salesItems)) {
+    output.salesItems = [
+      {
+        nozzleName: record.nozzleName || "",
+        machineName: record.machineName || "",
+        nozzle: record.nozzle || "",
+        fuelType: record.fuelType || "Petrol",
+        openingMeterReading: record.openingMeterReading || 0,
+        closingMeterReading: record.closingMeterReading || 0,
+        fuelPricePerLiter: record.fuelPricePerLiter || 0,
+        amountReceived: record.amountReceived || 0,
+        notes: record.notes || "",
+      },
+    ];
+  }
+
   Object.keys(defaults).forEach((key) => {
+    if (key === "salesItems") {
+      return;
+    }
     const value = record[key];
     if (value === undefined || value === null) {
       return;

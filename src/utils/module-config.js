@@ -44,6 +44,8 @@ export const moduleConfigs = {
     endpoint: "fuel-purchases",
     searchFields: ["supplierName", "invoiceNumber", "fuelType"],
     filters: [
+      { name: "startDate", label: "Start Date", type: "date" },
+      { name: "endDate", label: "End Date", type: "date" },
       { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
     ],
     fields: [
@@ -71,6 +73,8 @@ export const moduleConfigs = {
     endpoint: "fuel-sales",
     searchFields: ["nozzleName", "fuelType"],
     filters: [
+      { name: "startDate", label: "Start Date", type: "date" },
+      { name: "endDate", label: "End Date", type: "date" },
       { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
     ],
     fields: [
@@ -101,6 +105,8 @@ export const moduleConfigs = {
     endpoint: "tanks",
     searchFields: ["fuelType", "notes"],
     filters: [
+      { name: "startDate", label: "Start Date", type: "date" },
+      { name: "endDate", label: "End Date", type: "date" },
       { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
     ],
     fields: [
@@ -149,6 +155,8 @@ export const moduleConfigs = {
     endpoint: "expenses",
     searchFields: ["expenseTitle", "category", "description"],
     filters: [
+      { name: "startDate", label: "Start Date", type: "date" },
+      { name: "endDate", label: "End Date", type: "date" },
       { name: "category", label: "Category", type: "select", options: ["", ...EXPENSE_CATEGORIES] },
     ],
     fields: [
@@ -187,29 +195,7 @@ export const moduleConfigs = {
       { key: "pendingBalance", label: "Pending", formatter: formatCurrency },
     ],
   },
-  payments: {
-    title: "Credit Recovery Payments",
-    description: "Record received payments against customer credit balances.",
-    endpoint: "payments",
-    searchFields: ["customer", "note", "method"],
-    filters: [
-      { name: "method", label: "Method", type: "select", options: ["", ...PAYMENT_METHODS] },
-    ],
-    fields: [
-      { name: "customer", label: "Customer Name", type: "text" },
-      { name: "vehicleNumber", label: "Vehicle Number", type: "text", readOnly: true },
-      { name: "amount", label: "Amount", type: "number" },
-      { name: "method", label: "Method", type: "select", options: PAYMENT_METHODS },
-      { name: "note", label: "Note", type: "textarea" },
-      { name: "date", label: "Date", ...dateField },
-    ],
-    columns: [
-      { key: "date", label: "Date", formatter: formatDate },
-      { key: "customerName", label: "Customer" },
-      { key: "amount", label: "Amount", formatter: formatCurrency },
-      { key: "method", label: "Method" },
-    ],
-  },
+  // payments module removed; payment actions now available from the Customers page
   employees: {
     title: "Employee Management",
     description: "Manage employee profiles, attendance, salary, and assignments.",
@@ -241,6 +227,8 @@ export const moduleConfigs = {
     endpoint: "stock-adjustments",
     searchFields: ["fuelType", "reason"],
     filters: [
+      { name: "startDate", label: "Start Date", type: "date" },
+      { name: "endDate", label: "End Date", type: "date" },
       { name: "fuelType", label: "Fuel Type", type: "select", optionsSource: "products" },
     ],
     fields: [
