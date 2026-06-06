@@ -6,7 +6,8 @@ const dateField = { type: "date" };
 function getFuelSaleTotalAmount(record = {}) {
   const soldLiters = Number(record.soldLiters ?? Number(record.closingMeterReading || 0) - Number(record.openingMeterReading || 0));
   const pricePerLiter = Number(record.fuelPricePerLiter || 0);
-  return soldLiters * pricePerLiter;
+  const openingBalance = Number(record.openingBalance || 0);
+  return soldLiters * pricePerLiter + openingBalance;
 }
 
 function getFuelSalePendingAmount(record = {}) {
@@ -83,6 +84,7 @@ export const moduleConfigs = {
       { name: "openingMeterReading", label: "Opening Meter Reading", type: "number" },
       { name: "closingMeterReading", label: "Closing Meter Reading", type: "number" },
       { name: "fuelPricePerLiter", label: "Fuel Price Per Liter", type: "number" },
+      { name: "openingBalance", label: "Opening Balance", type: "number" },
       { name: "amountReceived", label: "Amount Received", type: "number" },
       { name: "totalSaleAmount", label: "Total Amount", type: "number", readOnly: true },
       { name: "pendingAmount", label: "Pending Amount", type: "number", readOnly: true },
@@ -94,6 +96,7 @@ export const moduleConfigs = {
       { key: "nozzleName", label: "Nozzle" },
       { key: "fuelType", label: "Fuel" },
       { key: "soldLiters", label: "Sold Liters", formatter: formatRawNumber },
+      { key: "openingBalance", label: "Opening Balance", formatter: formatCurrency },
       { key: "totalSaleAmount", label: "Total Amount", formatter: (_, record) => formatCurrency(getFuelSaleTotalAmount(record)) },
       { key: "amountReceived", label: "Amount Received", formatter: formatCurrency },
       { key: "pendingAmount", label: "Pending Amount", formatter: (_, record) => formatCurrency(getFuelSalePendingAmount(record)) },

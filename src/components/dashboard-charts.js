@@ -70,7 +70,7 @@ export function DashboardCharts({ charts }) {
             <PieChart>
             <Pie data={charts.fuelConsumption} dataKey="value" nameKey="label" innerRadius={60} outerRadius={100} paddingAngle={4}>
               {charts.fuelConsumption.map((entry, index) => (
-                <Cell key={entry.label} fill={colors[index % colors.length]} />
+                <Cell key={`${entry.label}-${index}`} fill={colors[index % colors.length]} />
               ))}
             </Pie>
             <Tooltip />

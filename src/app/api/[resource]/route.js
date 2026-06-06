@@ -30,7 +30,8 @@ function parseObjectId(value) {
 function getFuelSaleTotals(body) {
   const soldLiters = calculateSoldLiters(body.openingMeterReading, body.closingMeterReading);
   const pricePerLiter = ensureFiniteNumber(body.fuelPricePerLiter, "fuelPricePerLiter");
-  const totalSaleAmount = soldLiters * pricePerLiter;
+  const openingBalance = Number(body.openingBalance || 0);
+  const totalSaleAmount = soldLiters * pricePerLiter + openingBalance;
   const amountReceivedValue = Number(body.amountReceived);
   const amountReceived = Number.isFinite(amountReceivedValue) ? Math.max(amountReceivedValue, 0) : 0;
   const pendingAmount = Math.max(totalSaleAmount - amountReceived, 0);
@@ -150,6 +151,7 @@ async function createRecord(resource, body, user, session, pumpId) {
     case "fuel-sales": {
       const amountReceivedValue = Number(body.amountReceived);
       const amountReceived = Number.isFinite(amountReceivedValue) ? Math.max(amountReceivedValue, 0) : 0;
+      const openingBalance = Number(body.openingBalance || 0);
 
       if (Array.isArray(body.salesItems) && body.salesItems.length) {
         let totalSoldLiters = 0;
@@ -197,6 +199,7 @@ async function createRecord(resource, body, user, session, pumpId) {
 
         const averagePrice = totalSoldLiters > 0 ? totalWeightedPrice / totalSoldLiters : firstItem?.fuelPricePerLiter || 0;
         const summaryFuelType = fuelTypes.size === 1 ? firstItem?.fuelType || "" : "Mixed";
+        const recordTotalSaleAmount = totalSaleAmount + openingBalance;
         const recordData = {
           ...body,
           salesItems,
@@ -207,9 +210,10 @@ async function createRecord(resource, body, user, session, pumpId) {
           openingMeterReading: firstItem?.openingMeterReading || 0,
           closingMeterReading: firstItem?.closingMeterReading || 0,
           soldLiters: totalSoldLiters,
-          totalSaleAmount,
+          openingBalance: openingBalance,
+          totalSaleAmount: recordTotalSaleAmount,
           amountReceived,
-          pendingAmount: Math.max(totalSaleAmount - amountReceived, 0),
+          pendingAmount: Math.max(recordTotalSaleAmount - amountReceived, 0),
           date: new Date(body.date),
           createdBy: user._id,
           pumpId: pumpId || null,
@@ -237,6 +241,7 @@ async function createRecord(resource, body, user, session, pumpId) {
         fuelPricePerLiter,
         nozzleName,
         soldLiters,
+        openingBalance: openingBalance,
         totalSaleAmount,
         amountReceived,
         pendingAmount,
@@ -290,7 +295,7 @@ async function createRecord(resource, body, user, session, pumpId) {
       if (customer) {
         const amt = Number(payment.amount || 0);
         if (paymentType === "receive") {
-          customer.pendingBalance = Math.max(0, Number(customer.pendingBalance || 0) - amt);
+          customer.pendingBalance = Number(customer.pendingBalance || 0) - amt;
         } else {
           customer.pendingBalance = Number(customer.pendingBalance || 0) + amt;
         }
@@ -378,6 +383,7 @@ async function updateRecord(resource, id, body, session, pumpId) {
       const fuelTypes = new Set();
       const amountReceivedValue = Number(body.amountReceived);
       const amountReceived = Number.isFinite(amountReceivedValue) ? Math.max(amountReceivedValue, 0) : 0;
+      const openingBalance = Number(body.openingBalance || 0);
 
       for (const item of body.salesItems) {
         const fuelSaleTotals = getFuelSaleTotals(item);
@@ -392,9 +398,10 @@ async function updateRecord(resource, id, body, session, pumpId) {
 
       body.soldLiters = totalSoldLiters;
       body.fuelPricePerLiter = totalSoldLiters > 0 ? totalWeightedPrice / totalSoldLiters : firstItem?.fuelPricePerLiter || 0;
-      body.totalSaleAmount = totalSaleAmount;
+      body.openingBalance = openingBalance;
+      body.totalSaleAmount = totalSaleAmount + openingBalance;
       body.amountReceived = amountReceived;
-      body.pendingAmount = Math.max(totalSaleAmount - amountReceived, 0);
+      body.pendingAmount = Math.max(body.totalSaleAmount - amountReceived, 0);
       body.nozzleName = firstItem?.nozzleName || firstItem?.nozzle || "Batch";
       body.machineName = firstItem?.machineName || "";
       body.fuelType = fuelTypes.size === 1 ? firstItem?.fuelType || "" : "Mixed";
@@ -404,6 +411,7 @@ async function updateRecord(resource, id, body, session, pumpId) {
       const fuelSaleTotals = getFuelSaleTotals(body);
       body.soldLiters = fuelSaleTotals.soldLiters;
       body.fuelPricePerLiter = fuelSaleTotals.fuelPricePerLiter;
+      body.openingBalance = Number(body.openingBalance || 0);
       body.totalSaleAmount = fuelSaleTotals.totalSaleAmount;
       body.amountReceived = fuelSaleTotals.amountReceived;
       body.pendingAmount = fuelSaleTotals.pendingAmount;

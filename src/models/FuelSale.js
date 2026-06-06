@@ -26,7 +26,7 @@ const fuelSaleSchema = new mongoose.Schema(
     soldLiters: { type: Number, required: true },
     fuelPricePerLiter: { type: Number, required: true },
     totalSaleAmount: { type: Number, required: true },
-    
+    openingBalance: { type: Number, default: 0 },
     amountReceived: { type: Number, default: 0 },
     pendingAmount: { type: Number, default: 0 },
     date: { type: Date, required: true },

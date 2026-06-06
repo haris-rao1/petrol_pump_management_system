@@ -58,39 +58,40 @@ export function ModulePage({ resource }) {
   const { setValue, control } = form;
   const salesItemsFieldArray = useFieldArray({ control, name: "salesItems" });
   const watchedSalesItems = useWatch({ control, name: "salesItems" });
-  const nozzleNameToMachine = useMemo(
-    () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, item.machineName || ""])),
+  const nozzleIdToName = useMemo(
+    () => new Map((nozzleOptions || []).map((item) => [String(item._id), item.nozzleName || ""])),
     [nozzleOptions],
   );
-  const nozzleNameToReading = useMemo(
-    () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, Number(item.currentMeterReading || 0)])),
+  const nozzleIdToMachine = useMemo(
+    () => new Map((nozzleOptions || []).map((item) => [String(item._id), item.machineName || ""])),
     [nozzleOptions],
   );
-  const nozzleNameToId = useMemo(
-    () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, String(item._id)])),
+  const nozzleIdToReading = useMemo(
+    () => new Map((nozzleOptions || []).map((item) => [String(item._id), Number(item.currentMeterReading || 0)])),
     [nozzleOptions],
   );
-  const nozzleNameToFuelType = useMemo(
-    () => new Map((nozzleOptions || []).map((item) => [item.nozzleName, item.fuelType || ""])),
+  const nozzleIdToFuelType = useMemo(
+    () => new Map((nozzleOptions || []).map((item) => [String(item._id), item.fuelType || ""])),
     [nozzleOptions],
   );
   const watchedOpeningMeterReading = useWatch({ control, name: "openingMeterReading" });
   const watchedClosingMeterReading = useWatch({ control, name: "closingMeterReading" });
   const watchedFuelPricePerLiter = useWatch({ control, name: "fuelPricePerLiter" });
+  const watchedOpeningBalance = useWatch({ control, name: "openingBalance" });
   const watchedAmountReceived = useWatch({ control, name: "amountReceived" });
   const watchedCustomer = useWatch({ control, name: "customer" });
 
-  function setSalesItemNozzleName(index, nozzleName) {
+  function setSalesItemNozzle(index, nozzleId) {
+    const nozzleName = nozzleIdToName.get(nozzleId) || "";
     setValue(`salesItems.${index}.nozzleName`, nozzleName, { shouldDirty: true, shouldValidate: true });
-    const machineName = nozzleNameToMachine.get(nozzleName) || "";
+    const machineName = nozzleIdToMachine.get(nozzleId) || "";
     setValue(`salesItems.${index}.machineName`, machineName, { shouldDirty: true, shouldValidate: true });
-    const openingReading = nozzleNameToReading.get(nozzleName);
+    const openingReading = nozzleIdToReading.get(nozzleId);
     if (openingReading !== undefined) {
       setValue(`salesItems.${index}.openingMeterReading`, openingReading, { shouldDirty: true, shouldValidate: true });
     }
-    const nozzleId = nozzleNameToId.get(nozzleName) || "";
     setValue(`salesItems.${index}.nozzle`, nozzleId, { shouldDirty: true, shouldValidate: true });
-    const fuelType = nozzleNameToFuelType.get(nozzleName) || "";
+    const fuelType = nozzleIdToFuelType.get(nozzleId) || "";
     setValue(`salesItems.${index}.fuelType`, fuelType, { shouldDirty: true, shouldValidate: true });
   }
 
@@ -102,7 +103,7 @@ export function ModulePage({ resource }) {
   const totalAmount = (watchedSalesItems || []).reduce((sum, item) => {
     const soldLiters = Math.max(0, Number(item?.closingMeterReading || 0) - Number(item?.openingMeterReading || 0));
     return sum + soldLiters * Number(item?.fuelPricePerLiter || 0);
-  }, 0);
+  }, 0) + Number(watchedOpeningBalance || 0);
 
   const totalReceived = Number(watchedAmountReceived || 0);
   const totalPending = Math.max(totalAmount - totalReceived, 0);
@@ -110,6 +111,7 @@ export function ModulePage({ resource }) {
   const salesSummary = {
     totalSoldLiters,
     totalAmount,
+    openingBalance: Number(watchedOpeningBalance || 0),
     totalReceived,
     totalPending,
   };
@@ -240,7 +242,7 @@ export function ModulePage({ resource }) {
             const nozzleItems = payload.data?.items || [];
             nextOptions[field.name] = nozzleItems.map((item) => ({
               label: `${item.nozzleName}${item.machineName ? ` (${item.machineName})` : ""}`,
-              value: item.nozzleName,
+              value: String(item._id),
             }));
             setNozzleOptions(nozzleItems);
           }
@@ -562,12 +564,12 @@ export function ModulePage({ resource }) {
                       className="w-full bg-transparent outline-none"
                     >
                       {/* static options */}
-                      {(filter.options || []).map((option) => (
-                        <option key={String(option || "all")} value={option}>{option || filter.label}</option>
+                      {(filter.options || []).map((option, optionIndex) => (
+                        <option key={`${String(option || "all")}-${optionIndex}`} value={option}>{option || filter.label}</option>
                       ))}
                       {/* dynamic options (objects with label/value) */}
-                      {dynOptions.map((opt) => (
-                        <option key={String(opt.value || opt)} value={opt.value ?? opt}>{opt.label ?? opt}</option>
+                      {dynOptions.map((opt, optIndex) => (
+                        <option key={`${String(opt.value ?? opt)}-${optIndex}`} value={opt.value ?? opt}>{opt.label ?? opt}</option>
                       ))}
                     </select>
                   ) : (
@@ -609,7 +611,17 @@ export function ModulePage({ resource }) {
                   <tr key={record._id} className="bg-transparent transition hover:bg-slate-50/60 dark:hover:bg-white/5">
                     <td className="px-6 py-4 font-medium">{(page - 1) * PAGE_SIZE + index + 1}</td>
                     {config.columns.map((column) => (
-                      <td key={column.key} className="px-6 py-4">{renderCell(record, column)}</td>
+                      <td
+                        key={column.key}
+                        className={cn(
+                          "px-6 py-4",
+                          column.key === "pendingBalance" && Number(record.pendingBalance || 0) < 0
+                            ? "bg-amber-50 dark:bg-amber-500/10 font-semibold text-amber-700 dark:text-amber-300"
+                            : ""
+                        )}
+                      >
+                        {renderCell(record, column)}
+                      </td>
                     ))}
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-2">
@@ -704,27 +716,26 @@ export function ModulePage({ resource }) {
                                 <label className="space-y-2">
                                   <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Nozzle Name</span>
                                   <Controller
-                                    name={`salesItems.${index}.nozzleName`}
+                                    name={`salesItems.${index}.nozzle`}
                                     control={control}
-                                    defaultValue={item.nozzleName}
+                                    defaultValue={item.nozzle}
                                     render={({ field }) => (
                                       <select
                                         {...field}
                                         className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
                                         onChange={(event) => {
-                                          field.onChange(event);
-                                          setSalesItemNozzleName(index, event.target.value);
+                                          setSalesItemNozzle(index, event.target.value);
                                         }}
                                       >
                                         <option value="">Select nozzle</option>
-                                        {(dynamicOptions.nozzleName || []).map((option) => (
-                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                        {(dynamicOptions.nozzleName || []).map((option, optionIndex) => (
+                                          <option key={`${option.value}-${optionIndex}`} value={option.value}>{option.label}</option>
                                         ))}
                                       </select>
                                     )}
                                   />
-                                  {form.formState.errors?.salesItems?.[index]?.nozzleName ? (
-                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.nozzleName?.message}</span>
+                                  {form.formState.errors?.salesItems?.[index]?.nozzle ? (
+                                    <span className="text-xs text-rose-500">{form.formState.errors.salesItems?.[index]?.nozzle?.message}</span>
                                   ) : null}
                                 </label>
                                 <label className="space-y-2">
@@ -822,11 +833,16 @@ export function ModulePage({ resource }) {
                     </div>
 
                     <div className="md:col-span-2 grid gap-4">
-                      <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="grid gap-4 sm:grid-cols-3">
                         <FormField
                           field={{ name: "date", label: "Date", type: "date" }}
                           register={form.register}
                           error={form.formState.errors.date}
+                        />
+                        <FormField
+                          field={{ name: "openingBalance", label: "Opening Balance", type: "number" }}
+                          register={form.register}
+                          error={form.formState.errors.openingBalance}
                         />
                         <FormField
                           field={{ name: "amountReceived", label: "Amount Received", type: "number" }}
@@ -836,7 +852,7 @@ export function ModulePage({ resource }) {
                       </div>
 
                       <div className="rounded-3xl border border-slate-200/70 bg-slate-50/80 p-5 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200">
-                        <div className="grid gap-3 sm:grid-cols-4">
+                        <div className="grid gap-3 sm:grid-cols-5">
                           <div>
                             <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Total Liters</span>
                             <p className="mt-2 text-lg font-semibold">{formatNumber(salesSummary.totalSoldLiters)}</p>
@@ -844,6 +860,10 @@ export function ModulePage({ resource }) {
                           <div>
                             <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Total Amount</span>
                             <p className="mt-2 text-lg font-semibold">{formatCurrency(salesSummary.totalAmount)}</p>
+                          </div>
+                          <div>
+                            <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Opening Balance</span>
+                            <p className="mt-2 text-lg font-semibold">{formatCurrency(salesSummary.openingBalance)}</p>
                           </div>
                           <div>
                             <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Received</span>
@@ -1022,8 +1042,8 @@ function FormField({ field, options, register, error }) {
       <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{field.label}</span>
       {field.type === "select" ? (
         <select defaultValue={defaultValue} className={base} {...register(field.name)}>
-          {options.map((option) => (
-            <option key={option.value || option} value={option.value || option}>{option.label || option || field.label}</option>
+          {options.map((option, optionIndex) => (
+            <option key={`${option.value || option}-${optionIndex}`} value={option.value || option}>{option.label || option || field.label}</option>
           ))}
         </select>
       ) : field.type === "textarea" ? (
