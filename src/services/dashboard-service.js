@@ -80,9 +80,8 @@ export async function getDashboardSummary(pumpId = null) {
   const monthEnd = endOfMonth(new Date());
   const chartStart = subDays(todayStart, 6);
 
-  const [petrolTank, dieselTank, todaySales, monthSales, todayPurchases, todayExpenses, monthPurchases, monthExpenses, creditSummary] = await Promise.all([
-    Tank.findOne(pumpObjectId ? { fuelType: "Petrol", pumpId: pumpObjectId } : { fuelType: "Petrol" }).lean(),
-    Tank.findOne(pumpObjectId ? { fuelType: "Diesel", pumpId: pumpObjectId } : { fuelType: "Diesel" }).lean(),
+  const [tanks, todaySales, monthSales, todayPurchases, todayExpenses, monthPurchases, monthExpenses, creditSummary] = await Promise.all([
+    Tank.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).lean(),
     sumRange(FuelSale, "totalSaleAmount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumRange(FuelSale, "totalSaleAmount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumRange(FuelPurchase, "totalAmount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
@@ -109,12 +108,20 @@ export async function getDashboardSummary(pumpId = null) {
 
   const todayProfit = todaySales - todayPurchases - todayExpenses;
   const monthlyProfit = monthSales - monthPurchases - monthExpenses;
+  const stock = tanks.reduce((output, tank) => {
+    if (!tank || !tank.fuelType) return output;
+    output[tank.fuelType] = Number(tank.currentStock || 0);
+    return output;
+  }, {});
+  if (stock.Petrol === undefined) {
+    stock.Petrol = 0;
+  }
+  if (stock.Diesel === undefined) {
+    stock.Diesel = 0;
+  }
 
   return {
-    stock: {
-      petrol: Number(petrolTank?.currentStock || 0),
-      diesel: Number(dieselTank?.currentStock || 0),
-    },
+    stock,
     totals: {
       todaySales,
       monthSales,

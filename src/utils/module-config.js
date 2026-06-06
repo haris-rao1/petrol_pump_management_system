@@ -91,6 +91,7 @@ export const moduleConfigs = {
     ],
     columns: [
       { key: "date", label: "Date", formatter: formatDate },
+      { key: "nozzleName", label: "Nozzle" },
       { key: "fuelType", label: "Fuel" },
       { key: "soldLiters", label: "Sold Liters", formatter: formatRawNumber },
       { key: "totalSaleAmount", label: "Total Amount", formatter: (_, record) => formatCurrency(getFuelSaleTotalAmount(record)) },

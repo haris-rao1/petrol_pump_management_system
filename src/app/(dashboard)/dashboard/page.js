@@ -9,11 +9,29 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
   const summary = await getDashboardSummary(user?.activePumpId || null);
 
+  const stockEntries = Object.entries(summary.stock || {}).sort((a, b) => {
+    const order = ["Petrol", "Diesel"];
+    const indexA = order.indexOf(a[0]);
+    const indexB = order.indexOf(b[0]);
+    if (indexA === -1 && indexB === -1) return a[0].localeCompare(b[0]);
+    if (indexA === -1) return 1;
+    if (indexB === -1) return -1;
+    return indexA - indexB;
+  });
+
   return (
     <div className="space-y-5">
       <section className="grid gap-5 xl:grid-cols-5">
-        <StatCard title="Petrol Stock" value={`${formatRawNumber(summary.stock.petrol)} L`} subtitle="Current underground tank stock" icon={Fuel} tone="green" />
-        <StatCard title="Diesel Stock" value={`${formatRawNumber(summary.stock.diesel)} L`} subtitle="Current underground tank stock" icon={Fuel} tone="amber" />
+        {stockEntries.map(([fuelType, stockValue]) => (
+          <StatCard
+            key={fuelType}
+            title={`${fuelType} Stock`}
+            value={`${formatRawNumber(stockValue)} L`}
+            subtitle="Current underground tank stock"
+            icon={Fuel}
+            tone={fuelType.toLowerCase() === "petrol" ? "green" : fuelType.toLowerCase() === "diesel" ? "amber" : "blue"}
+          />
+        ))}
         <StatCard title="Today's Sales" value={formatCurrency(summary.totals.todaySales)} subtitle="Sales recorded today" icon={Receipt} tone="blue" />
         <StatCard title="Today's Profit" value={formatCurrency(summary.totals.todayProfit)} subtitle="Sales - purchases - expenses" icon={PiggyBank} tone="green" />
         <StatCard title="Credit Pending" value={formatCurrency(summary.totals.creditPending)} subtitle="Outstanding customer balances" icon={Wallet} tone="rose" />
