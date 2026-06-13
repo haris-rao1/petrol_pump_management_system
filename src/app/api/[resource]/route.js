@@ -28,8 +28,16 @@ function parseObjectId(value) {
 }
 
 function getFuelSaleTotals(body) {
-  const soldLiters = calculateSoldLiters(body.openingMeterReading, body.closingMeterReading);
-  const pricePerLiter = ensureFiniteNumber(body.fuelPricePerLiter, "fuelPricePerLiter");
+  const openingMeterReading = body.openingMeterReading !== undefined && body.openingMeterReading !== null
+    ? Number(body.openingMeterReading)
+    : 0;
+  const closingMeterReading = body.closingMeterReading !== undefined && body.closingMeterReading !== null
+    ? Number(body.closingMeterReading)
+    : openingMeterReading;
+  const soldLiters = calculateSoldLiters(openingMeterReading, closingMeterReading);
+  const pricePerLiter = soldLiters === 0
+    ? 0
+    : ensureFiniteNumber(body.fuelPricePerLiter, "fuelPricePerLiter");
   const openingBalance = Number(body.openingBalance || 0);
   const totalSaleAmount = soldLiters * pricePerLiter + openingBalance;
   const amountReceivedValue = Number(body.amountReceived);
@@ -231,9 +239,18 @@ async function createRecord(resource, body, user, session, pumpId) {
         return record;
       }
 
+      // If only an opening meter reading is provided (opening balance),
+      // treat it as a non-sale balance: set closing equal to opening so
+      // calculations produce zero sold liters and no stock change.
+      if (body.openingMeterReading !== undefined && (body.closingMeterReading === undefined || body.closingMeterReading === null)) {
+        body.closingMeterReading = body.openingMeterReading;
+      }
+
       const fuelSaleTotals = getFuelSaleTotals(body);
       const { soldLiters, fuelPricePerLiter, totalSaleAmount, pendingAmount } = fuelSaleTotals;
-      await decreaseTankStock(body.fuelType, soldLiters, session, pumpId);
+      if (soldLiters > 0 && body.fuelType) {
+        await decreaseTankStock(body.fuelType, soldLiters, session, pumpId);
+      }
 
       const nozzleName = body.nozzleName || body.nozzle || "";
       const recordData = {

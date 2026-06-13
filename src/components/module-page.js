@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { jsPDF } from "jspdf";
@@ -147,20 +147,18 @@ export function ModulePage({ resource }) {
     }
   }, [config.endpoint, watchedCustomer]);
 
+  const initializedSalesItems = useRef(false);
+
   useEffect(() => {
-    if (resource === "fuel-sales" && salesItemsFieldArray.fields.length === 0) {
-      salesItemsFieldArray.replace(defaults.salesItems || [
-        {
-          nozzleName: "",
-          machineName: "",
-          nozzle: "",
-          fuelType: "Petrol",
-          openingMeterReading: 0,
-          closingMeterReading: 0,
-          fuelPricePerLiter: 0,
-        },
-      ]);
+    if (resource !== "fuel-sales" || initializedSalesItems.current) {
+      return;
     }
+
+    if (salesItemsFieldArray.fields.length === 0 && defaults.salesItems && defaults.salesItems.length > 0) {
+      salesItemsFieldArray.replace(defaults.salesItems);
+    }
+
+    initializedSalesItems.current = true;
   }, [resource, salesItemsFieldArray, defaults.salesItems]);
 
   function selectCustomer(customer) {

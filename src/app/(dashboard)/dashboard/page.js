@@ -33,7 +33,7 @@ export default async function DashboardPage() {
           />
         ))}
         <StatCard title="Today's Sales" value={formatCurrency(summary.totals.todaySales)} subtitle="Sales recorded today" icon={Receipt} tone="blue" />
-        <StatCard title="Today's Profit" value={formatCurrency(summary.totals.todayProfit)} subtitle="Sales - purchases - expenses" icon={PiggyBank} tone="green" />
+        <StatCard title="Today's Expense" value={formatCurrency(summary.totals.todayExpenses)} subtitle="Expenses recorded today" icon={PiggyBank} tone="rose" />
         <StatCard title="Credit Pending" value={formatCurrency(summary.totals.creditPending)} subtitle="Outstanding customer balances" icon={Wallet} tone="rose" />
       </section>
 

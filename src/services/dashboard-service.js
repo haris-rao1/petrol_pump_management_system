@@ -11,6 +11,14 @@ function dateKey(date, pattern = "yyyy-MM-dd") {
   return format(date, pattern);
 }
 
+function normalizeFuelType(fuelType) {
+  if (!fuelType) return "";
+  const v = String(fuelType).trim().toLowerCase();
+  if (v.includes("diesel") || v.includes("deisel")) return "Diesel";
+  if (v.includes("petrol") || v.includes("gasoline")) return "Petrol";
+  return String(fuelType).trim();
+}
+
 async function sumByDate(model, field, startDate, endDate, extraQuery = {}) {
   const rows = await model.aggregate([
     {
@@ -110,7 +118,9 @@ export async function getDashboardSummary(pumpId = null) {
   const monthlyProfit = monthSales - monthPurchases - monthExpenses;
   const stock = tanks.reduce((output, tank) => {
     if (!tank || !tank.fuelType) return output;
-    output[tank.fuelType] = Number(tank.currentStock || 0);
+    const key = normalizeFuelType(tank.fuelType);
+    if (!key) return output;
+    output[key] = Number(tank.currentStock || 0);
     return output;
   }, {});
   if (stock.Petrol === undefined) {
@@ -124,6 +134,7 @@ export async function getDashboardSummary(pumpId = null) {
     stock,
     totals: {
       todaySales,
+      todayExpenses,
       monthSales,
       todayProfit,
       monthlyProfit,

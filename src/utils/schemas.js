@@ -8,6 +8,27 @@ export const loginSchema = z.object({
 
 const sharedDate = z.string().min(1, "Date is required");
 
+const optionalNumber = (schema) =>
+  z.preprocess((value) => (value === "" || value === null ? undefined : value), schema).optional();
+
+const normalizeSalesItems = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => (item && typeof item === "object" ? item : {}))
+    .filter((item) => {
+      return [
+        "nozzleName",
+        "nozzle",
+        "fuelType",
+        "openingMeterReading",
+        "closingMeterReading",
+        "fuelPricePerLiter",
+      ].some((key) => item[key] !== undefined && item[key] !== null && item[key] !== "" && item[key] !== 0);
+    });
+};
+
 export const moduleSchemas = {
   pumps: z.object({
     name: z.string().min(2, "Pump name is required"),
@@ -26,22 +47,22 @@ export const moduleSchemas = {
     notes: z.string().optional().default(""),
   }),
   "fuel-sales": z.object({
-    salesItems: z.array(z.object({
+    salesItems: z.preprocess(normalizeSalesItems, z.array(z.object({
       nozzleName: z.string().min(2, "Nozzle name is required"),
       machineName: z.string().optional().default(""),
       nozzle: z.string().optional().default(""),
       fuelType: z.string().min(2, "Product is required"),
-      openingMeterReading: z.coerce.number().nonnegative("Opening reading must be zero or greater"),
-      closingMeterReading: z.coerce.number().nonnegative("Closing reading must be zero or greater"),
-      fuelPricePerLiter: z.coerce.number().positive("Price must be greater than zero"),
-    })).optional(),
+      openingMeterReading: optionalNumber(z.coerce.number().nonnegative("Opening reading must be zero or greater")),
+      closingMeterReading: optionalNumber(z.coerce.number().nonnegative("Closing reading must be zero or greater")),
+      fuelPricePerLiter: optionalNumber(z.coerce.number().nonnegative("Price must be zero or greater")),
+    }))).optional(),
     nozzleName: z.string().min(2, "Nozzle name is required").optional(),
     machineName: z.string().optional().default(""),
     nozzle: z.string().optional().default(""),
     fuelType: z.string().min(2, "Product is required").optional(),
-    openingMeterReading: z.coerce.number().nonnegative("Opening reading must be zero or greater").optional(),
-    closingMeterReading: z.coerce.number().nonnegative("Closing reading must be zero or greater").optional(),
-    fuelPricePerLiter: z.coerce.number().positive("Price must be greater than zero").optional(),
+    openingMeterReading: optionalNumber(z.coerce.number().nonnegative("Opening reading must be zero or greater")),
+    closingMeterReading: optionalNumber(z.coerce.number().nonnegative("Closing reading must be zero or greater")),
+    fuelPricePerLiter: optionalNumber(z.coerce.number().nonnegative("Price must be zero or greater")),
     openingBalance: z.coerce.number().nonnegative("Opening balance cannot be negative").optional().default(0),
     amountReceived: z.coerce.number().nonnegative().default(0),
     totalSaleAmount: z.coerce.number().nonnegative().optional().default(0),
@@ -49,11 +70,15 @@ export const moduleSchemas = {
     date: sharedDate,
     notes: z.string().optional().default(""),
   }).superRefine((values, ctx) => {
-    if ((!values.salesItems || values.salesItems.length === 0) && !values.nozzleName) {
+    const hasSalesItems = Array.isArray(values.salesItems) && values.salesItems.length > 0;
+    const hasOpeningBalance = Number(values.openingBalance || 0) > 0;
+    const hasSaleReading = values.nozzleName !== undefined || values.openingMeterReading !== undefined;
+
+    if (!hasSalesItems && !hasOpeningBalance && !hasSaleReading) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["nozzleName"],
-        message: "At least one sale item is required",
+        message: "At least one sale item, opening balance, or opening meter reading is required",
       });
     }
   }),
@@ -157,7 +182,7 @@ export const resourceFormDefaults = {
         nozzleName: "",
         machineName: "",
         nozzle: "",
-        fuelType: "Petrol",
+        fuelType: "",
         openingMeterReading: 0,
         closingMeterReading: 0,
         fuelPricePerLiter: 0,
