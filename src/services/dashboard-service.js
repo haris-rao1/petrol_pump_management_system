@@ -5,6 +5,7 @@ import FuelSale from "@/models/FuelSale";
 import Tank from "@/models/Tank";
 import Expense from "@/models/Expense";
 import Customer from "@/models/Customer";
+import Payment from "@/models/Payment";
 import { toPumpObjectId } from "@/lib/pump";
 
 function dateKey(date, pattern = "yyyy-MM-dd") {
@@ -88,7 +89,7 @@ export async function getDashboardSummary(pumpId = null) {
   const monthEnd = endOfMonth(new Date());
   const chartStart = subDays(todayStart, 6);
 
-  const [tanks, todaySales, monthSales, todayPurchases, todayExpenses, monthPurchases, monthExpenses, creditSummary] = await Promise.all([
+  const [tanks, todaySales, monthSales, todayPurchases, todayExpenses, monthPurchases, monthExpenses, creditSummary, todayPaymentsReceived, monthPaymentsReceived] = await Promise.all([
     Tank.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).lean(),
     sumRange(FuelSale, "totalSaleAmount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumRange(FuelSale, "totalSaleAmount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
@@ -96,6 +97,8 @@ export async function getDashboardSummary(pumpId = null) {
     sumRange(Expense, "amount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumRange(FuelPurchase, "totalAmount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumRange(Expense, "amount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumRange(Payment, "amount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId, type: "receive" } : { type: "receive" }),
+    sumRange(Payment, "amount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId, type: "receive" } : { type: "receive" }),
     Customer.aggregate([{ $match: pumpObjectId ? { pumpId: pumpObjectId } : {} }, { $group: { _id: null, total: { $sum: "$pendingBalance" } } }]),
   ]);
 
@@ -114,8 +117,12 @@ export async function getDashboardSummary(pumpId = null) {
     FuelSale.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).sort({ date: -1 }).limit(5).lean(),
   ]);
 
-  const todayProfit = todaySales - todayPurchases - todayExpenses;
-  const monthlyProfit = monthSales - monthPurchases - monthExpenses;
+  // Include payments received in monthly (and optionally daily) sales figures
+  const adjustedMonthSales = Number(monthSales || 0) + Number(monthPaymentsReceived || 0);
+  const adjustedTodaySales = Number(todaySales || 0) + Number(todayPaymentsReceived || 0);
+
+  const todayProfit = adjustedTodaySales - todayPurchases - todayExpenses;
+  const monthlyProfit = adjustedMonthSales - monthPurchases - monthExpenses;
   const stock = tanks.reduce((output, tank) => {
     if (!tank || !tank.fuelType) return output;
     const key = normalizeFuelType(tank.fuelType);
@@ -133,9 +140,11 @@ export async function getDashboardSummary(pumpId = null) {
   return {
     stock,
     totals: {
-      todaySales,
+      todaySales: adjustedTodaySales,
       todayExpenses,
-      monthSales,
+      monthSales: adjustedMonthSales,
+      monthPaymentsReceived: Number(monthPaymentsReceived || 0),
+      todayPaymentsReceived: Number(todayPaymentsReceived || 0),
       todayProfit,
       monthlyProfit,
       creditPending: Number(creditSummary[0]?.total || 0),
