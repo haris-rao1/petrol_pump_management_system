@@ -5,7 +5,8 @@ import { PAYMENT_METHODS } from "@/lib/constants";
 const paymentSchema = new mongoose.Schema(
   {
     pumpId: { type: mongoose.Schema.Types.ObjectId, ref: "Pump", default: null, index: true },
-    customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", required: true },
+    customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", required: false },
+    saleId: { type: mongoose.Schema.Types.ObjectId, ref: "FuelSale", required: false },
     amount: { type: Number, required: true },
     method: { type: String, enum: PAYMENT_METHODS, default: "Cash" },
     type: { type: String, enum: ["receive", "credit"], default: "receive" },

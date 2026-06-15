@@ -236,6 +236,39 @@ async function createRecord(resource, body, user, session, pumpId) {
 
         const record = new model(recordData);
         await record.save(session ? { session } : {});
+        // create payment record for received amount (if any)
+        try {
+          const amt = Number(recordData.amountReceived || 0);
+          if (amt > 0) {
+            const paymentModel = resourceModelMap["payments"];
+            let paymentCustomer = null;
+            if (body.customer) {
+              const customerQuery = parseObjectId(body.customer) ? { _id: body.customer, pumpId: pumpId || null } : { name: body.customer, pumpId: pumpId || null };
+              paymentCustomer = await Customer.findOne(customerQuery).session(session || null);
+            }
+
+            const payment = new paymentModel({
+              customer: paymentCustomer?._id,
+              saleId: record._id,
+              amount: amt,
+              method: body.method || "Cash",
+              type: "receive",
+              note: body.note || `Payment for sale ${record._id}`,
+              date: record.date || new Date(body.date),
+              createdBy: user._id,
+              pumpId: pumpId || null,
+            });
+            await payment.save(session ? { session } : {});
+
+            if (paymentCustomer) {
+              paymentCustomer.pendingBalance = Number(paymentCustomer.pendingBalance || 0) - amt;
+              await paymentCustomer.save(session ? { session } : {});
+            }
+          }
+        } catch (e) {
+          console.error('Failed to create payment for sale:', e);
+        }
+
         return record;
       }
 
@@ -277,6 +310,39 @@ async function createRecord(resource, body, user, session, pumpId) {
       const record = new model(recordData);
       await record.save(session ? { session } : {});
 
+      // create payment record for received amount (if any)
+      try {
+        const amt = Number(recordData.amountReceived || 0);
+        if (amt > 0) {
+          const paymentModel = resourceModelMap["payments"];
+          let paymentCustomer = null;
+          if (body.customer) {
+            const customerQuery = parseObjectId(body.customer) ? { _id: body.customer, pumpId: pumpId || null } : { name: body.customer, pumpId: pumpId || null };
+            paymentCustomer = await Customer.findOne(customerQuery).session(session || null);
+          }
+
+          const payment = new paymentModel({
+            customer: paymentCustomer?._id,
+            saleId: record._id,
+            amount: amt,
+            method: body.method || "Cash",
+            type: "receive",
+            note: body.note || `Payment for sale ${record._id}`,
+            date: record.date || new Date(body.date),
+            createdBy: user._id,
+            pumpId: pumpId || null,
+          });
+          await payment.save(session ? { session } : {});
+
+          if (paymentCustomer) {
+            paymentCustomer.pendingBalance = Number(paymentCustomer.pendingBalance || 0) - amt;
+            await paymentCustomer.save(session ? { session } : {});
+          }
+        }
+      } catch (e) {
+        console.error('Failed to create payment for sale:', e);
+      }
+
       if (nozzleId) {
         await updateNozzleReading(nozzleId, body.closingMeterReading, session, pumpId);
       }
@@ -299,6 +365,7 @@ async function createRecord(resource, body, user, session, pumpId) {
 
       const payment = new model({
         customer: customer?._id,
+        saleId: parseObjectId(body.saleId) || undefined,
         amount: ensureFiniteNumber(body.amount, "amount"),
         method: body.method,
         type: paymentType,
@@ -675,14 +742,44 @@ export async function DELETE(request, { params }) {
   const filter = pumpScopedResources.has(resource) && pumpId ? { _id: id, pumpId } : { _id: id };
 
   let deletedRecord = null;
-
-  if (resource === "fuel-sales") {
+  if (resource === "fuel-sales" || resource === "customers") {
     deletedRecord = await model.findOne(filter).lean();
   }
 
   await model.findOneAndDelete(filter);
 
-  if (resource === "fuel-sales") {
+  if (resource === "customers" && deletedRecord) {
+    // remove payment history belonging to this customer
+    const paymentModel = resourceModelMap["payments"];
+    await paymentModel.deleteMany({ customer: deletedRecord._id, pumpId: pumpId || null });
+  }
+
+  if (resource === "fuel-sales" && deletedRecord) {
+    const paymentModel = resourceModelMap["payments"];
+    const relatedPayments = await paymentModel.find({ saleId: deletedRecord._id, pumpId: pumpId || null }).lean();
+
+    if (relatedPayments.length) {
+      const customerIds = [...new Set(relatedPayments.map((payment) => payment.customer?.toString?.()).filter(Boolean))];
+      const customers = customerIds.length
+        ? await Customer.find({ _id: { $in: customerIds }, pumpId: pumpId || null })
+        : [];
+      const customerMap = new Map(customers.map((cust) => [String(cust._id), cust]));
+
+      for (const payment of relatedPayments) {
+        const customer = payment.customer ? customerMap.get(String(payment.customer)) : null;
+        if (!customer) continue;
+        const amt = Number(payment.amount || 0);
+        if (payment.type === "receive") {
+          customer.pendingBalance = Number(customer.pendingBalance || 0) + amt;
+        } else if (payment.type === "credit") {
+          customer.pendingBalance = Number(customer.pendingBalance || 0) - amt;
+        }
+      }
+
+      await Promise.all(customers.map((cust) => cust.save()));
+      await paymentModel.deleteMany({ saleId: deletedRecord._id, pumpId: pumpId || null });
+    }
+
     const nozzleIds = new Set();
     if (Array.isArray(deletedRecord?.salesItems)) {
       for (const item of deletedRecord.salesItems) {
