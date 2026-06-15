@@ -89,7 +89,8 @@ export async function getDashboardSummary(pumpId = null) {
   const monthEnd = endOfMonth(new Date());
   const chartStart = subDays(todayStart, 6);
 
-  const [tanks, todaySales, monthSales, todayPurchases, todayExpenses, monthPurchases, monthExpenses, creditSummary, todayPaymentsReceived, monthPaymentsReceived] = await Promise.all([
+  const customerQuery = pumpObjectId ? { pumpId: pumpObjectId } : {};
+  const [tanks, todaySales, monthSales, todayPurchases, todayExpenses, monthPurchases, monthExpenses, todayPaymentsReceived, monthPaymentsReceived, customers] = await Promise.all([
     Tank.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).lean(),
     sumRange(FuelSale, "totalSaleAmount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumRange(FuelSale, "totalSaleAmount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
@@ -99,7 +100,7 @@ export async function getDashboardSummary(pumpId = null) {
     sumRange(Expense, "amount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumRange(Payment, "amount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId, type: "receive" } : { type: "receive" }),
     sumRange(Payment, "amount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId, type: "receive" } : { type: "receive" }),
-    Customer.aggregate([{ $match: pumpObjectId ? { pumpId: pumpObjectId } : {} }, { $group: { _id: null, total: { $sum: "$pendingBalance" } } }]),
+    Customer.find(customerQuery).select("pendingBalance").lean(),
   ]);
 
   const [dailySales, monthlySales, dailyExpenses, monthlyExpenses, fuelConsumption, recentPurchases, recentExpenses, recentSales] = await Promise.all([
@@ -137,6 +138,11 @@ export async function getDashboardSummary(pumpId = null) {
     stock.Diesel = 0;
   }
 
+  const creditPending = customers.reduce((sum, customer) => {
+    const balance = Number(customer.pendingBalance || 0);
+    return sum + (balance > 0 ? balance : 0);
+  }, 0);
+
   return {
     stock,
     totals: {
@@ -147,7 +153,7 @@ export async function getDashboardSummary(pumpId = null) {
       todayPaymentsReceived: Number(todayPaymentsReceived || 0),
       todayProfit,
       monthlyProfit,
-      creditPending: Number(creditSummary[0]?.total || 0),
+      creditPending: creditPending,
       recentExpensesTotal: recentExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0),
     },
     charts: {
