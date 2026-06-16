@@ -458,7 +458,63 @@ async function updateRecord(resource, id, body, session, pumpId) {
   if (resource === "users" && body.password) {
     body.password = await bcrypt.hash(body.password, 12);
   }
+  if (resource === "fuel-purchases") {
+    // Get existing purchase record to compare quantities and fuel type
+    const filter = pumpScopedResources.has(resource) && pumpId ? { _id: id, pumpId } : { _id: id };
+    const existingPurchase = await model.findOne(filter).lean();
+    
+    if (existingPurchase) {
+      const oldQuantity = Number(existingPurchase.quantityLiters || 0);
+      const newQuantity = ensureFiniteNumber(body.quantityLiters, "quantityLiters");
+      const oldFuelType = existingPurchase.fuelType;
+      const newFuelType = body.fuelType || oldFuelType;
+      
+      // If fuel type changed, remove old fuel type stock and add new fuel type stock
+      if (oldFuelType !== newFuelType) {
+        // Remove quantity from old fuel type
+        await decreaseTankStock(oldFuelType, oldQuantity, session, pumpId);
+        // Add quantity to new fuel type
+        await increaseTankStock(newFuelType, newQuantity, session, pumpId);
+      } else {
+        // Same fuel type, just adjust the difference
+        const quantityDifference = newQuantity - oldQuantity;
+        
+        if (quantityDifference !== 0) {
+          if (quantityDifference > 0) {
+            // New quantity is greater, add the difference to stock
+            await increaseTankStock(newFuelType, quantityDifference, session, pumpId);
+          } else {
+            // New quantity is less, remove the difference from stock
+            await decreaseTankStock(newFuelType, Math.abs(quantityDifference), session, pumpId);
+          }
+        }
+      }
+    }
+    
+    // Calculate total amount
+    const qty = ensureFiniteNumber(body.quantityLiters, "quantityLiters");
+    const price = ensureFiniteNumber(body.pricePerLiter, "pricePerLiter");
+    body.totalAmount = qty * price;
+  }
   if (resource === "fuel-sales") {
+    // Get existing sale record to reverse old stock adjustments
+    const filter = pumpScopedResources.has(resource) && pumpId ? { _id: id, pumpId } : { _id: id };
+    const existingSale = await model.findOne(filter).lean();
+    
+    // First, reverse the old stock changes
+    if (existingSale) {
+      if (Array.isArray(existingSale?.salesItems) && existingSale.salesItems.length) {
+        for (const item of existingSale.salesItems) {
+          if (item.fuelType && Number(item.soldLiters || 0) > 0) {
+            await increaseTankStock(item.fuelType, Number(item.soldLiters || 0), session, pumpId);
+          }
+        }
+      } else if (existingSale.fuelType && Number(existingSale.soldLiters || 0) > 0) {
+        await increaseTankStock(existingSale.fuelType, Number(existingSale.soldLiters || 0), session, pumpId);
+      }
+    }
+    
+    // Now process new sales items and apply new stock changes
     if (Array.isArray(body.salesItems) && body.salesItems.length) {
       let totalSoldLiters = 0;
       let totalSaleAmount = 0;
@@ -471,9 +527,14 @@ async function updateRecord(resource, id, body, session, pumpId) {
 
       for (const item of body.salesItems) {
         const fuelSaleTotals = getFuelSaleTotals(item);
-        totalSoldLiters += fuelSaleTotals.soldLiters;
-        totalSaleAmount += fuelSaleTotals.totalSaleAmount;
-        totalWeightedPrice += fuelSaleTotals.soldLiters * fuelSaleTotals.fuelPricePerLiter;
+        const { soldLiters, fuelPricePerLiter, totalSaleAmount: itemTotal } = fuelSaleTotals;
+
+        // Decrease stock for new sale quantities
+        await decreaseTankStock(item.fuelType, soldLiters, session, pumpId);
+
+        totalSoldLiters += soldLiters;
+        totalSaleAmount += itemTotal;
+        totalWeightedPrice += soldLiters * fuelPricePerLiter;
         fuelTypes.add(item.fuelType);
         if (!firstItem) {
           firstItem = item;
@@ -493,6 +554,13 @@ async function updateRecord(resource, id, body, session, pumpId) {
       body.closingMeterReading = firstItem?.closingMeterReading || 0;
     } else {
       const fuelSaleTotals = getFuelSaleTotals(body);
+      const { soldLiters, fuelPricePerLiter, totalSaleAmount, pendingAmount } = fuelSaleTotals;
+      
+      // Decrease stock for new sale quantity
+      if (soldLiters > 0 && body.fuelType) {
+        await decreaseTankStock(body.fuelType, soldLiters, session, pumpId);
+      }
+      
       body.soldLiters = fuelSaleTotals.soldLiters;
       body.fuelPricePerLiter = fuelSaleTotals.fuelPricePerLiter;
       body.openingBalance = Number(body.openingBalance || 0);
@@ -742,59 +810,99 @@ export async function DELETE(request, { params }) {
   const filter = pumpScopedResources.has(resource) && pumpId ? { _id: id, pumpId } : { _id: id };
 
   let deletedRecord = null;
-  if (resource === "fuel-sales" || resource === "customers") {
+    if (resource === "fuel-sales" || resource === "customers" || resource === "fuel-purchases") {
     deletedRecord = await model.findOne(filter).lean();
   }
 
-  await model.findOneAndDelete(filter);
-
-  if (resource === "customers" && deletedRecord) {
-    // remove payment history belonging to this customer
-    const paymentModel = resourceModelMap["payments"];
-    await paymentModel.deleteMany({ customer: deletedRecord._id, pumpId: pumpId || null });
-  }
-
-  if (resource === "fuel-sales" && deletedRecord) {
-    const paymentModel = resourceModelMap["payments"];
-    const relatedPayments = await paymentModel.find({ saleId: deletedRecord._id, pumpId: pumpId || null }).lean();
-
-    if (relatedPayments.length) {
-      const customerIds = [...new Set(relatedPayments.map((payment) => payment.customer?.toString?.()).filter(Boolean))];
-      const customers = customerIds.length
-        ? await Customer.find({ _id: { $in: customerIds }, pumpId: pumpId || null })
-        : [];
-      const customerMap = new Map(customers.map((cust) => [String(cust._id), cust]));
-
-      for (const payment of relatedPayments) {
-        const customer = payment.customer ? customerMap.get(String(payment.customer)) : null;
-        if (!customer) continue;
-        const amt = Number(payment.amount || 0);
-        if (payment.type === "receive") {
-          customer.pendingBalance = Number(customer.pendingBalance || 0) + amt;
-        } else if (payment.type === "credit") {
-          customer.pendingBalance = Number(customer.pendingBalance || 0) - amt;
+  const transactionalResources = ["fuel-purchases", "fuel-sales", "payments", "stock-adjustments"];
+  const session = await mongoose.startSession();
+  
+  try {
+    if (transactionalResources.includes(resource)) {
+      await session.withTransaction(async () => {
+        await model.findOneAndDelete(filter).session(session);
+        
+        if (resource === "customers" && deletedRecord) {
+          // remove payment history belonging to this customer
+          const paymentModel = resourceModelMap["payments"];
+          await paymentModel.deleteMany({ customer: deletedRecord._id, pumpId: pumpId || null }).session(session);
         }
+
+        if (resource === "fuel-purchases" && deletedRecord) {
+          // remove stock added by this purchase
+          if (deletedRecord.fuelType && Number(deletedRecord.quantityLiters || 0) > 0) {
+            await decreaseTankStock(deletedRecord.fuelType, Number(deletedRecord.quantityLiters || 0), session, pumpId);
+          }
+        }
+
+        if (resource === "fuel-sales" && deletedRecord) {
+          const paymentModel = resourceModelMap["payments"];
+          const relatedPayments = await paymentModel.find({ saleId: deletedRecord._id, pumpId: pumpId || null }).session(session).lean();
+
+          if (relatedPayments.length) {
+            const customerIds = [...new Set(relatedPayments.map((payment) => payment.customer?.toString?.()).filter(Boolean))];
+            const customers = customerIds.length
+              ? await Customer.find({ _id: { $in: customerIds }, pumpId: pumpId || null }).session(session)
+              : [];
+            const customerMap = new Map(customers.map((cust) => [String(cust._id), cust]));
+
+            for (const payment of relatedPayments) {
+              const customer = payment.customer ? customerMap.get(String(payment.customer)) : null;
+              if (!customer) continue;
+              const amt = Number(payment.amount || 0);
+              if (payment.type === "receive") {
+                customer.pendingBalance = Number(customer.pendingBalance || 0) + amt;
+              } else if (payment.type === "credit") {
+                customer.pendingBalance = Number(customer.pendingBalance || 0) - amt;
+              }
+            }
+
+            await Promise.all(customers.map((cust) => cust.save({ session })));
+            await paymentModel.deleteMany({ saleId: deletedRecord._id, pumpId: pumpId || null }).session(session);
+          }
+
+          if (Array.isArray(deletedRecord?.salesItems) && deletedRecord.salesItems.length) {
+            for (const item of deletedRecord.salesItems) {
+              if (item.fuelType && Number(item.soldLiters || 0) > 0) {
+                await increaseTankStock(item.fuelType, Number(item.soldLiters || 0), session, pumpId);
+              }
+            }
+          } else if (deletedRecord.fuelType && Number(deletedRecord.soldLiters || 0) > 0) {
+            await increaseTankStock(deletedRecord.fuelType, Number(deletedRecord.soldLiters || 0), session, pumpId);
+          }
+
+          const nozzleIds = new Set();
+          if (Array.isArray(deletedRecord?.salesItems)) {
+            for (const item of deletedRecord.salesItems) {
+              const nozzleId = parseObjectId(item?.nozzle?.toString?.());
+              if (nozzleId) nozzleIds.add(String(nozzleId));
+            }
+          }
+          const topLevelNozzleId = parseObjectId(deletedRecord?.nozzle?.toString?.());
+          if (topLevelNozzleId) {
+            nozzleIds.add(String(topLevelNozzleId));
+          }
+
+          await Promise.all(
+            [...nozzleIds].map((id) => refreshNozzleReading(parseObjectId(id), session, pumpId)),
+          );
+        }
+      });
+    } else {
+      await model.findOneAndDelete(filter);
+
+      if (resource === "customers" && deletedRecord) {
+        // remove payment history belonging to this customer
+        const paymentModel = resourceModelMap["payments"];
+        await paymentModel.deleteMany({ customer: deletedRecord._id, pumpId: pumpId || null });
       }
-
-      await Promise.all(customers.map((cust) => cust.save()));
-      await paymentModel.deleteMany({ saleId: deletedRecord._id, pumpId: pumpId || null });
     }
-
-    const nozzleIds = new Set();
-    if (Array.isArray(deletedRecord?.salesItems)) {
-      for (const item of deletedRecord.salesItems) {
-        const nozzleId = parseObjectId(item?.nozzle?.toString?.());
-        if (nozzleId) nozzleIds.add(String(nozzleId));
-      }
-    }
-    const topLevelNozzleId = parseObjectId(deletedRecord?.nozzle?.toString?.());
-    if (topLevelNozzleId) {
-      nozzleIds.add(String(topLevelNozzleId));
-    }
-
-    await Promise.all(
-      [...nozzleIds].map((id) => refreshNozzleReading(parseObjectId(id), null, pumpId)),
-    );
+  } catch (error) {
+    console.error("DELETE error:", error);
+    session.endSession();
+    return failure(error?.message || "Unable to delete record", 500);
+  } finally {
+    session.endSession();
   }
 
   return success({ deleted: true });

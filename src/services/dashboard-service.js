@@ -120,7 +120,7 @@ export async function getDashboardSummary(pumpId = null) {
 
   // Include payments received in monthly (and optionally daily) sales figures
   const adjustedMonthSales = Number(monthSales || 0) + Number(monthPaymentsReceived || 0);
-  const adjustedTodaySales = Number(todaySales || 0) + Number(todayPaymentsReceived || 0);
+  const adjustedTodaySales = Number(todaySales || 0) ;
 
   const todayProfit = adjustedTodaySales - todayPurchases - todayExpenses;
   const monthlyProfit = adjustedMonthSales - monthPurchases - monthExpenses;

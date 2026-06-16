@@ -18,6 +18,10 @@ export function AppShell({ user, children }) {
     [user?.role],
   );
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
   async function handleLogout() {
     try {
       const response = await fetch("/api/auth/logout", { method: "POST" });
@@ -43,11 +47,20 @@ export function AppShell({ user, children }) {
   return (
     <div className="min-h-screen bg-transparent text-slate-950 dark:text-slate-100">
       <div className="mx-auto flex min-h-screen w-full max-w-430 gap-5 p-3 sm:p-4 lg:p-6">
+        {sidebarOpen ? (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-40 block bg-black/40 lg:hidden"
+            aria-label="Close mobile menu"
+          />
+        ) : null}
         <aside
           className={cn(
-            "glass-panel fixed inset-y-3 left-3 z-50 w-70 rounded-[28px] p-4 transition-transform duration-300 lg:static lg:translate-x-0",
+            "glass-panel fixed inset-y-3 left-3 z-50 w-70 rounded-[28px] p-4 transition-transform duration-300 lg:static lg:translate-x-0 flex h-[calc(100vh-1.5rem)] flex-col overflow-hidden",
             sidebarOpen ? "translate-x-0" : "translate-x-[-110%] lg:translate-x-0",
           )}
+          aria-hidden={!sidebarOpen}
         >
           <div className="flex items-center gap-3 border-b border-white/10 pb-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-(--brand) text-white shadow-lg shadow-green-950/20">
@@ -71,7 +84,7 @@ export function AppShell({ user, children }) {
             ) : null}
           </div>
 
-          <nav className="mt-5 space-y-1 overflow-y-auto pr-1 scrollbar-thin">
+          <nav className="mt-5 flex-1 space-y-1 overflow-y-auto pr-1 scrollbar-thin">
             {visibleNav.map((item) => {
               const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
@@ -108,7 +121,7 @@ export function AppShell({ user, children }) {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <header className="glass-panel sticky top-3 z-40 flex items-center justify-between rounded-[28px] px-4 py-3">
+          <header className="glass-panel sticky top-3 z-40 flex flex-col gap-3 rounded-[28px] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -123,7 +136,7 @@ export function AppShell({ user, children }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <ThemeToggle />
               <button
                 type="button"
