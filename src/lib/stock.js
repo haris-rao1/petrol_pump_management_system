@@ -78,6 +78,9 @@ export async function updateNozzleReading(nozzleId, meterReading, session, pumpI
   }
 
   nozzle.currentMeterReading = meterReading;
+  if (nozzle.nozzleName?.toLowerCase() === "open oil") { 
+    nozzle.currentMeterReading = 0;
+}
   await nozzle.save(session ? { session } : {});
   return nozzle;
 }
