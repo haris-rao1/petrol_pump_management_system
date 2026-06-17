@@ -95,7 +95,7 @@ export async function getReportData(filters = {}, pumpId = null) {
   ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const totals = {
-    salesRevenue: salesWithProfit.reduce((sum, sale) => sum + Number(sale.totalSaleAmount || 0), 0),
+    salesRevenue: salesWithProfit.reduce((sum, sale) => sum + Number(sale.totalSaleAmount - sale.openingBalance || 0), 0),
     purchasesCost: purchases.reduce((sum, purchase) => sum + Number(purchase.totalAmount || 0), 0),
     expenses: expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
     paymentsReceived: payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),

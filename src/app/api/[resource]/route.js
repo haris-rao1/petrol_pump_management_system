@@ -27,6 +27,93 @@ function parseObjectId(value) {
   return typeof value === "string" && value.length === 24 ? value : null;
 }
 
+async function findSaleCustomer(customerValue, pumpId, session) {
+  if (!customerValue) return null;
+  const query = parseObjectId(customerValue)
+    ? { _id: customerValue, pumpId: pumpId || null }
+    : { name: customerValue, pumpId: pumpId || null };
+  return Customer.findOne(query).session(session || null);
+}
+
+async function syncFuelSalePayment(existingSale, body, session, pumpId) {
+  if (!existingSale) return;
+
+  const paymentModel = resourceModelMap["payments"];
+  const requestedAmount = body.amountReceived !== undefined ? Number(body.amountReceived) : undefined;
+  const newAmount = requestedAmount !== undefined && Number.isFinite(requestedAmount)
+    ? Math.max(requestedAmount, 0)
+    : undefined;
+  const oldAmount = Number(existingSale.amountReceived || 0);
+  const shouldSync = newAmount !== undefined || body.customer !== undefined || body.note !== undefined || body.method !== undefined || body.date !== undefined;
+  if (!shouldSync) return;
+
+  const payment = await paymentModel.findOne({ saleId: existingSale._id, pumpId: pumpId || null, type: "receive" }).session(session || null);
+  const targetCustomer = await findSaleCustomer(body.customer !== undefined ? body.customer : existingSale.customer, pumpId, session);
+  const oldPaymentCustomer = payment?.customer ? await Customer.findById(payment.customer).session(session || null) : null;
+  const customerChanged = oldPaymentCustomer && targetCustomer && String(oldPaymentCustomer._id) !== String(targetCustomer._id);
+
+  if (payment) {
+    const oldPaymentAmount = Number(payment.amount || 0);
+    const amountDelta = newAmount !== undefined ? newAmount - oldPaymentAmount : 0;
+
+    if (newAmount !== undefined && newAmount > 0) {
+      if (targetCustomer) payment.customer = targetCustomer._id;
+      if (body.method) payment.method = body.method;
+      if (body.note) payment.note = body.note;
+      if (body.date) payment.date = new Date(body.date);
+      payment.amount = newAmount;
+      await payment.save({ session });
+
+      if (customerChanged) {
+        oldPaymentCustomer.pendingBalance = Number(oldPaymentCustomer.pendingBalance || 0) + oldPaymentAmount;
+        await oldPaymentCustomer.save({ session });
+        targetCustomer.pendingBalance = Number(targetCustomer.pendingBalance || 0) - newAmount;
+        await targetCustomer.save({ session });
+      } else if (amountDelta !== 0) {
+        const adjustCustomer = targetCustomer || oldPaymentCustomer;
+        if (adjustCustomer) {
+          adjustCustomer.pendingBalance = Number(adjustCustomer.pendingBalance || 0) - amountDelta;
+          await adjustCustomer.save({ session });
+        }
+      }
+    } else if (newAmount === 0) {
+      const paymentCustomer = oldPaymentCustomer || targetCustomer;
+      const restoreAmount = Number(payment.amount || 0);
+      await payment.deleteOne({ session });
+      if (paymentCustomer) {
+        paymentCustomer.pendingBalance = Number(paymentCustomer.pendingBalance || 0) + restoreAmount;
+        await paymentCustomer.save({ session });
+      }
+    } else {
+      if (body.note || body.method || body.date || customerChanged) {
+        if (body.method) payment.method = body.method;
+        if (body.note) payment.note = body.note;
+        if (body.date) payment.date = new Date(body.date);
+        if (targetCustomer) payment.customer = targetCustomer._id;
+        await payment.save({ session });
+      }
+    }
+  } else if (newAmount !== undefined && newAmount > 0) {
+    const paymentData = {
+      customer: targetCustomer?._id,
+      saleId: existingSale._id,
+      amount: newAmount,
+      method: body.method || "Cash",
+      type: "receive",
+      note: body.note || `Payment for sale ${existingSale._id}`,
+      date: body.date ? new Date(body.date) : new Date(existingSale.date || Date.now()),
+      createdBy: existingSale.createdBy,
+      pumpId: pumpId || null,
+    };
+    const createdPayment = new paymentModel(paymentData);
+    await createdPayment.save({ session });
+    if (targetCustomer) {
+      targetCustomer.pendingBalance = Number(targetCustomer.pendingBalance || 0) - newAmount;
+      await targetCustomer.save({ session });
+    }
+  }
+}
+
 function getFuelSaleTotals(body) {
   const openingMeterReading = body.openingMeterReading !== undefined && body.openingMeterReading !== null
     ? Number(body.openingMeterReading)
@@ -587,6 +674,7 @@ async function updateRecord(resource, id, body, session, pumpId) {
     if (oldNozzleId && (!newNozzleId || String(oldNozzleId) !== String(newNozzleId))) {
       await refreshNozzleReading(oldNozzleId, session, pumpId);
     }
+    await syncFuelSalePayment(existingSale, body, session, pumpId);
   }
 
   if (resource === "users") {

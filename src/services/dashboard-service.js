@@ -90,18 +90,112 @@ export async function getDashboardSummary(pumpId = null) {
   const chartStart = subDays(todayStart, 6);
 
   const customerQuery = pumpObjectId ? { pumpId: pumpObjectId } : {};
-  const [tanks, todaySales, monthSales, todayPurchases, todayExpenses, monthPurchases, monthExpenses, todayPaymentsReceived, monthPaymentsReceived, customers] = await Promise.all([
-    Tank.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).lean(),
-    sumRange(FuelSale, "totalSaleAmount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
-    sumRange(FuelSale, "totalSaleAmount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
-    sumRange(FuelPurchase, "totalAmount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
-    sumRange(Expense, "amount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
-    sumRange(FuelPurchase, "totalAmount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
-    sumRange(Expense, "amount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId } : {}),
-    sumRange(Payment, "amount", todayStart, todayEnd, pumpObjectId ? { pumpId: pumpObjectId, type: "receive" } : { type: "receive" }),
-    sumRange(Payment, "amount", monthStart, monthEnd, pumpObjectId ? { pumpId: pumpObjectId, type: "receive" } : { type: "receive" }),
-    Customer.find(customerQuery).select("pendingBalance").lean(),
+
+  const getNetSales = async (startDate, endDate, filter = {}) => {
+  const result = await FuelSale.aggregate([
+    {
+      $match: {
+        createdAt: { $gte: startDate, $lte: endDate },
+        ...filter,
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        total: {
+          $sum: {
+            $subtract: ["$totalSaleAmount", "$openingBalance"],
+          },
+        },
+      },
+    },
   ]);
+
+  return result[0]?.total || 0;
+};
+
+ const [
+  tanks,
+  todaySales,
+  monthSales,
+  todayPurchases,
+  todayExpenses,
+  monthPurchases,
+  monthExpenses,
+  todayPaymentsReceived,
+  monthPaymentsReceived,
+  customers,
+] = await Promise.all([
+  Tank.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).lean(),
+
+  getNetSales(
+    todayStart,
+    todayEnd,
+    pumpObjectId ? { pumpId: pumpObjectId } : {}
+  ),
+
+  getNetSales(
+    monthStart,
+    monthEnd,
+    pumpObjectId ? { pumpId: pumpObjectId } : {}
+  ),
+
+  sumRange(
+    FuelPurchase,
+    "totalAmount",
+    todayStart,
+    todayEnd,
+    pumpObjectId ? { pumpId: pumpObjectId } : {}
+  ),
+
+  sumRange(
+    Expense,
+    "amount",
+    todayStart,
+    todayEnd,
+    pumpObjectId ? { pumpId: pumpObjectId } : {}
+  ),
+
+  sumRange(
+    FuelPurchase,
+    "totalAmount",
+    monthStart,
+    monthEnd,
+    pumpObjectId ? { pumpId: pumpObjectId } : {}
+  ),
+
+  sumRange(
+    Expense,
+    "amount",
+    monthStart,
+    monthEnd,
+    pumpObjectId ? { pumpId: pumpObjectId } : {}
+  ),
+
+  sumRange(
+    Payment,
+    "amount",
+    todayStart,
+    todayEnd,
+    pumpObjectId
+      ? { pumpId: pumpObjectId, type: "receive" }
+      : { type: "receive" }
+  ),
+
+  sumRange(
+    Payment,
+    "amount",
+    monthStart,
+    monthEnd,
+    pumpObjectId
+      ? { pumpId: pumpObjectId, type: "receive" }
+      : { type: "receive" }
+  ),
+
+  Customer.find(customerQuery)
+    .select("pendingBalance")
+    .lean(),
+]);
 
   const [dailySales, monthlySales, dailyExpenses, monthlyExpenses, fuelConsumption, recentPurchases, recentExpenses, recentSales] = await Promise.all([
     sumByDate(FuelSale, "totalSaleAmount", chartStart, todayStart, pumpObjectId ? { pumpId: pumpObjectId } : {}),
@@ -119,7 +213,7 @@ export async function getDashboardSummary(pumpId = null) {
   ]);
 
   // Include payments received in monthly (and optionally daily) sales figures
-  const adjustedMonthSales = Number(monthSales || 0) + Number(monthPaymentsReceived || 0);
+  const adjustedMonthSales = Number(monthSales || 0) ;
   const adjustedTodaySales = Number(todaySales || 0) ;
 
   const todayProfit = adjustedTodaySales - todayPurchases - todayExpenses;
