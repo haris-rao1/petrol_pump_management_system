@@ -264,7 +264,9 @@ async function createRecord(resource, body, user, session, pumpId) {
           const fuelSaleTotals = getFuelSaleTotals(itemBody);
           const { soldLiters, fuelPricePerLiter, totalSaleAmount: itemTotal } = fuelSaleTotals;
 
-          await decreaseTankStock(itemBody.fuelType, soldLiters, session, pumpId);
+          if (soldLiters > 0 && itemBody.fuelType) {
+            await decreaseTankStock(itemBody.fuelType, soldLiters, session, pumpId);
+          }
 
           const nozzleId = parseObjectId(itemBody.nozzle);
           if (nozzleId) {
@@ -286,14 +288,16 @@ async function createRecord(resource, body, user, session, pumpId) {
           totalSoldLiters += soldLiters;
           totalSaleAmount += itemTotal;
           totalWeightedPrice += soldLiters * fuelPricePerLiter;
-          fuelTypes.add(itemBody.fuelType);
+          if (itemBody.fuelType) {
+            fuelTypes.add(itemBody.fuelType);
+          }
           if (!firstItem) {
             firstItem = itemBody;
           }
         }
 
         const averagePrice = totalSoldLiters > 0 ? totalWeightedPrice / totalSoldLiters : firstItem?.fuelPricePerLiter || 0;
-        const summaryFuelType = fuelTypes.size === 1 ? firstItem?.fuelType || "" : "Mixed";
+        const summaryFuelType = fuelTypes.size === 1 ? [...fuelTypes][0] : fuelTypes.size === 0 ? "" : "Mixed";
         const recordTotalSaleAmount = totalSaleAmount + openingBalance;
         const recordData = {
           ...body,
@@ -616,13 +620,17 @@ async function updateRecord(resource, id, body, session, pumpId) {
         const fuelSaleTotals = getFuelSaleTotals(item);
         const { soldLiters, fuelPricePerLiter, totalSaleAmount: itemTotal } = fuelSaleTotals;
 
-        // Decrease stock for new sale quantities
-        await decreaseTankStock(item.fuelType, soldLiters, session, pumpId);
+        // Decrease stock for new sale quantities only when the fuel type is present.
+        if (soldLiters > 0 && item.fuelType) {
+          await decreaseTankStock(item.fuelType, soldLiters, session, pumpId);
+        }
 
         totalSoldLiters += soldLiters;
         totalSaleAmount += itemTotal;
         totalWeightedPrice += soldLiters * fuelPricePerLiter;
-        fuelTypes.add(item.fuelType);
+        if (item.fuelType) {
+          fuelTypes.add(item.fuelType);
+        }
         if (!firstItem) {
           firstItem = item;
         }
@@ -636,7 +644,7 @@ async function updateRecord(resource, id, body, session, pumpId) {
       body.pendingAmount = Math.max(body.totalSaleAmount - amountReceived, 0);
       body.nozzleName = firstItem?.nozzleName || firstItem?.nozzle || "Batch";
       body.machineName = firstItem?.machineName || "";
-      body.fuelType = fuelTypes.size === 1 ? firstItem?.fuelType || "" : "Mixed";
+      body.fuelType = fuelTypes.size === 1 ? [...fuelTypes][0] : fuelTypes.size === 0 ? "" : "Mixed";
       body.openingMeterReading = firstItem?.openingMeterReading || 0;
       body.closingMeterReading = firstItem?.closingMeterReading || 0;
     } else {
@@ -662,6 +670,24 @@ async function updateRecord(resource, id, body, session, pumpId) {
   let existingSale = null;
   if (resource === "fuel-sales") {
     existingSale = await model.findOne(filter).lean();
+  }
+  // Normalize nozzle fields to avoid Mongoose casting errors (empty string -> remove)
+  if (Array.isArray(body?.salesItems)) {
+    body.salesItems = body.salesItems.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const copy = { ...item };
+      if (copy.nozzle !== undefined) {
+        const nid = parseObjectId(copy.nozzle);
+        if (nid) copy.nozzle = nid;
+        else delete copy.nozzle;
+      }
+      return copy;
+    });
+  }
+  if (body && body.nozzle !== undefined) {
+    const nid = parseObjectId(body.nozzle);
+    if (nid) body.nozzle = nid;
+    else delete body.nozzle;
   }
   const updated = await model.findOneAndUpdate(filter, body, options);
 

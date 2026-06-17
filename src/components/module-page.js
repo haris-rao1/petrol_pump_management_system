@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Plus, Search, Download, FileText, Pencil, Trash2, Filter, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/components/cn";
 import { moduleConfigs, getModuleConfig } from "@/utils/module-config";
-import { moduleSchemas, resourceFormDefaults } from "@/utils/schemas";
+import {  resourceFormDefaults } from "@/utils/schemas";
 import { formatCurrency, formatDate, formatNumber, toCsvValue } from "@/utils/format";
 
 const PAGE_SIZE = 10;
@@ -18,7 +18,7 @@ const pumpScopedResources = new Set(["fuel-purchases", "fuel-sales", "tanks", "n
 
 export function ModulePage({ resource }) {
   const config = getModuleConfig(resource) || moduleConfigs[resource];
-  const schema = moduleSchemas[resource];
+  
   const defaults = resourceFormDefaults[resource];
 
   const [records, setRecords] = useState([]);
@@ -51,7 +51,6 @@ export function ModulePage({ resource }) {
   const selectedPumpId = currentUser?.activePumpId || currentUser?.pumpId || "";
 
   const form = useForm({
-    resolver: zodResolver(schema),
     defaultValues: defaults,
   });
 

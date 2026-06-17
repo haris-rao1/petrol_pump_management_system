@@ -38,7 +38,7 @@ export const moduleSchemas = {
     notes: z.string().optional().default(""),
   }),
   "fuel-purchases": z.object({
-    fuelType: z.string().min(2, "Fuel type is required"),
+    fuelType: z.string().optional(),
     quantityLiters: z.coerce.number().positive("Quantity must be greater than zero"),
     pricePerLiter: z.coerce.number().positive("Price must be greater than zero"),
     supplierName: z.string().min(2, "Supplier name is required"),
@@ -48,18 +48,18 @@ export const moduleSchemas = {
   }),
   "fuel-sales": z.object({
     salesItems: z.preprocess(normalizeSalesItems, z.array(z.object({
-      nozzleName: z.string().min(2, "Nozzle name is required"),
+      nozzleName: z.string().optional(),
       machineName: z.string().optional().default(""),
       nozzle: z.string().optional().default(""),
-      fuelType: z.string().min(2, "Product is required"),
+      fuelType: z.string().optional(),
       openingMeterReading: optionalNumber(z.coerce.number().nonnegative("Opening reading must be zero or greater")),
       closingMeterReading: optionalNumber(z.coerce.number().nonnegative("Closing reading must be zero or greater")),
       fuelPricePerLiter: optionalNumber(z.coerce.number().nonnegative("Price must be zero or greater")),
     }))).optional(),
-    nozzleName: z.string().min(2, "Nozzle name is required").optional(),
+    nozzleName: z.string().optional(),
     machineName: z.string().optional().default(""),
     nozzle: z.string().optional().default(""),
-    fuelType: z.string().min(2, "Product is required").optional(),
+    fuelType: z.string().optional(),
     openingMeterReading: optionalNumber(z.coerce.number().nonnegative("Opening reading must be zero or greater")),
     closingMeterReading: optionalNumber(z.coerce.number().nonnegative("Closing reading must be zero or greater")),
     fuelPricePerLiter: optionalNumber(z.coerce.number().nonnegative("Price must be zero or greater")),
@@ -69,21 +69,9 @@ export const moduleSchemas = {
     pendingAmount: z.coerce.number().nonnegative().optional().default(0),
     date: sharedDate,
     notes: z.string().optional().default(""),
-  }).superRefine((values, ctx) => {
-    const hasSalesItems = Array.isArray(values.salesItems) && values.salesItems.length > 0;
-    const hasOpeningBalance = Number(values.openingBalance || 0) > 0;
-    const hasSaleReading = values.nozzleName !== undefined || values.openingMeterReading !== undefined;
-
-    if (!hasSalesItems && !hasOpeningBalance && !hasSaleReading) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["nozzleName"],
-        message: "At least one sale item, opening balance, or opening meter reading is required",
-      });
-    }
   }),
   tanks: z.object({
-    fuelType: z.string().min(2, "Fuel type is required"),
+    fuelType: z.string().optional(),
     currentStock: z.coerce.number().nonnegative("Current stock cannot be negative"),
     capacityLiters: z.coerce.number().nonnegative("Capacity cannot be negative").default(0),
     lowStockThreshold: z.coerce.number().nonnegative().default(5000),
@@ -92,7 +80,7 @@ export const moduleSchemas = {
   nozzles: z.object({
     nozzleName: z.coerce.string().min(1, "Nozzle name is required"),
     machineName: z.coerce.string().min(1, "Machine name is required"),
-    fuelType: z.string().min(2, "Fuel type is required"),
+    fuelType: z.string().optional(),
     currentMeterReading: z.coerce.number().nonnegative("Meter reading cannot be negative"),
     status: z.enum(STATUS_OPTIONS),
   }),
@@ -130,7 +118,7 @@ export const moduleSchemas = {
     status: z.enum(STATUS_OPTIONS),
   }),
   "stock-adjustments": z.object({
-    fuelType: z.string().min(2, "Fuel type is required"),
+    fuelType: z.string().optional(),
     adjustmentQuantity: z.coerce.number(),
     reason: z.string().min(2, "Reason is required"),
     date: sharedDate,
