@@ -105,12 +105,19 @@ export function ModulePage({ resource }) {
     return sum + soldLiters * Number(item?.fuelPricePerLiter || 0);
   }, 0) + Number(watchedOpeningBalance || 0);
 
+  const salePrice = (watchedSalesItems || []).reduce((sum, item) => {
+    const soldLiters = Math.max(0, Number(item?.closingMeterReading || 0) - Number(item?.openingMeterReading || 0));
+    return sum + soldLiters * Number(item?.fuelPricePerLiter || 0);
+  }, 0) ;
+
   const totalReceived = Number(watchedAmountReceived || 0);
   const totalPending = Math.max(totalAmount - totalReceived, 0);
+
 
   const salesSummary = {
     totalSoldLiters,
     totalAmount,
+    salePrice,
     openingBalance: Number(watchedOpeningBalance || 0),
     totalReceived,
     totalPending,
@@ -863,6 +870,11 @@ export function ModulePage({ resource }) {
                             <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Opening Balance</span>
                             <p className="mt-2 text-lg font-semibold">{formatCurrency(salesSummary.openingBalance)}</p>
                           </div>
+                          <div>
+                            <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Sale Price</span>
+                            <p className="mt-2 text-lg font-semibold">{formatCurrency(salesSummary.salePrice)}</p>
+                          </div>
+
                           <div>
                             <span className="block text-xs uppercase tracking-[0.25em] text-slate-500">Received</span>
                             <p className="mt-2 text-lg font-semibold">{formatCurrency(salesSummary.totalReceived)}</p>
