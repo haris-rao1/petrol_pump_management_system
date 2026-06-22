@@ -49,11 +49,10 @@ export function ReportCenter() {
       ["Section", "Value"],
       ["Sales Revenue", data.totals.salesRevenue],
       ["Overall Sale", data.totals.overallSale],
-      ["Credit Customer", data.totals.creditCustomer],
       ["Purchase Cost", data.totals.purchasesCost],
-      ["Expenses", data.totals.expenses],
+      ["Expenses + Credit Customer", data.totals.expenses +data.totals.creditCustomer],
       ["Payments Received", data.totals.paymentsReceived],
-      ["Sales Profit", data.totals.salesProfit],
+      ["Sales Profit", data.totals.salesProfit + data.totals.paymentsReceived ],
       ["Net Profit", data.totalProfit],
     ];
     const csv = rows.map((row) => row.map((cell) => toCsvValue(cell)).join(",")).join("\n");
@@ -74,11 +73,11 @@ export function ReportCenter() {
       body: [
         ["Sales Revenue", formatCurrency(data.totals.salesRevenue)],
         ["Overall Sale", formatCurrency(data.totals.overallSale)],
-        ["Credit Customer", formatCurrency(data.totals.creditCustomer)],
+       
         ["Purchase Cost", formatCurrency(data.totals.purchasesCost)],
-        ["Expenses", formatCurrency(data.totals.expenses)],
+        ["Expenses + Credit Customer", formatCurrency(data.totals.expenses + data.totals.creditCustomer)],
         ["Payments Received", formatCurrency(data.totals.paymentsReceived)],
-        ["Sales Profit", formatCurrency(data.totals.salesProfit)],
+        ["Sales Profit", formatCurrency(data.totals.salesProfit + data.totals.paymentsReceived)],
         ["Net Profit", formatCurrency(data.totalProfit)],
       ],
     });
@@ -146,7 +145,7 @@ export function ReportCenter() {
               <option value="all">All</option>
               <option value="Sales">Sales</option>
               <option value="Purchases">Purchases</option>
-              <option value="Expenses">Expenses</option>
+              <option value="Expenses + Credit Customer">Expenses + Credit Customer</option>
               <option value="Payments">Payments</option>
             </select>
           </label>
@@ -159,13 +158,15 @@ export function ReportCenter() {
         <>
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             <MetricCard title="Sales Revenue" value={formatCurrency(data.totals.salesRevenue)} />
-            <MetricCard title="Overall Sale" value={formatCurrency(data.totals.overallSale)} />
-            <MetricCard title="Credit Customer" value={formatCurrency(data.totals.creditCustomer)} />
-            <MetricCard title="Purchase Cost" value={formatCurrency(data.totals.purchasesCost)} />
-            <MetricCard title="Expenses" value={formatCurrency(data.totals.expenses)} />
             <MetricCard title="Payments Received" value={formatCurrency(data.totals.paymentsReceived)} />
-            <MetricCard title="Sales Profit" value={formatCurrency(data.totals.salesProfit)} />
+            <MetricCard title="Sales Profit" value={formatCurrency(data.totals.salesProfit + data.totals.paymentsReceived)} />
+             <MetricCard title="Expenses + Credit Customer" value={formatCurrency(data.totals.expenses + data.totals.creditCustomer)} />
+             <MetricCard title="Purchase Cost" value={formatCurrency(data.totals.purchasesCost)} />
+           
+            
+            
             <MetricCard title="Net Profit" value={formatCurrency(data.totalProfit)} />
+            <MetricCard title="Overall Sale" value={formatCurrency(data.totals.overallSale)} />
           </section>
 
           <section className="glass-panel rounded-4xl p-5">
