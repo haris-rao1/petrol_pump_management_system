@@ -48,6 +48,8 @@ export function ReportCenter() {
     const rows = [
       ["Section", "Value"],
       ["Sales Revenue", data.totals.salesRevenue],
+      ["Overall Sale", data.totals.overallSale],
+      ["Credit Customer", data.totals.creditCustomer],
       ["Purchase Cost", data.totals.purchasesCost],
       ["Expenses", data.totals.expenses],
       ["Payments Received", data.totals.paymentsReceived],
@@ -71,6 +73,8 @@ export function ReportCenter() {
       head: [["Metric", "Value"]],
       body: [
         ["Sales Revenue", formatCurrency(data.totals.salesRevenue)],
+        ["Overall Sale", formatCurrency(data.totals.overallSale)],
+        ["Credit Customer", formatCurrency(data.totals.creditCustomer)],
         ["Purchase Cost", formatCurrency(data.totals.purchasesCost)],
         ["Expenses", formatCurrency(data.totals.expenses)],
         ["Payments Received", formatCurrency(data.totals.paymentsReceived)],
@@ -155,6 +159,8 @@ export function ReportCenter() {
         <>
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             <MetricCard title="Sales Revenue" value={formatCurrency(data.totals.salesRevenue)} />
+            <MetricCard title="Overall Sale" value={formatCurrency(data.totals.overallSale)} />
+            <MetricCard title="Credit Customer" value={formatCurrency(data.totals.creditCustomer)} />
             <MetricCard title="Purchase Cost" value={formatCurrency(data.totals.purchasesCost)} />
             <MetricCard title="Expenses" value={formatCurrency(data.totals.expenses)} />
             <MetricCard title="Payments Received" value={formatCurrency(data.totals.paymentsReceived)} />

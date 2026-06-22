@@ -4,6 +4,7 @@ import FuelSale from "@/models/FuelSale";
 import FuelPurchase from "@/models/FuelPurchase";
 import Expense from "@/models/Expense";
 import Payment from "@/models/Payment";
+import Customer from "@/models/Customer";
 import { applyPumpScope, toPumpObjectId } from "@/lib/pump";
 
 export async function getReportData(filters = {}, pumpId = null) {
@@ -33,11 +34,12 @@ export async function getReportData(filters = {}, pumpId = null) {
     purchaseQuery.fuelType = filters.fuelType;
   }
 
-  const [sales, purchases, expenses, payments] = await Promise.all([
+  const [sales, purchases, expenses, payments, customers] = await Promise.all([
     FuelSale.find(saleQuery).sort({ date: -1 }).lean(),
     FuelPurchase.find(purchaseQuery).sort({ date: -1 }).lean(),
     Expense.find(expenseQuery).sort({ date: -1 }).lean(),
     Payment.find(paymentQuery).populate("customer", "name vehicleNumber").sort({ date: -1 }).lean(),
+    Customer.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).lean(),
   ]);
 
   const purchaseCostByFuel = purchases.reduce((map, purchase) => {
@@ -94,13 +96,32 @@ export async function getReportData(filters = {}, pumpId = null) {
     ...paymentRows,
   ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
+  const salesRevenue = salesWithProfit.reduce((sum, sale) => sum + Number(sale.totalSaleAmount - sale.openingBalance || 0), 0);
+  const openingBalanceTotal = salesWithProfit.reduce((sum, sale) => sum + Number(sale.openingBalance || 0), 0);
+  const paymentsReceivedTotal = payments.reduce((sum, payment) => payment.type?.toLowerCase() === "receive" ? sum + Number(payment.amount || 0) : sum, 0);
+  const paymentsCreditTotal = payments.reduce((sum, payment) => payment.type?.toLowerCase() === "credit" ? sum + Number(payment.amount || 0) : sum, 0);
+  const customerCreditFallback = customers.reduce((sum, customer) => {
+    const createdAt = customer.createdAt ? new Date(customer.createdAt) : null;
+    const updatedAt = customer.updatedAt ? new Date(customer.updatedAt) : null;
+    const inRange =
+      (createdAt && createdAt >= startDate && createdAt <= endDate) ||
+      (updatedAt && updatedAt >= startDate && updatedAt <= endDate);
+    if (!inRange) return sum;
+    return sum + Math.max(Number(customer.pendingBalance || 0), 0);
+  }, 0);
+  const creditCustomerTotal = paymentsCreditTotal > 0 ? paymentsCreditTotal : customerCreditFallback;
+  const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+
   const totals = {
-    salesRevenue: salesWithProfit.reduce((sum, sale) => sum + Number(sale.totalSaleAmount - sale.openingBalance || 0), 0),
+    salesRevenue,
+    openingBalance: openingBalanceTotal,
+    paymentsReceived: paymentsReceivedTotal,
+    creditCustomer: creditCustomerTotal,
     purchasesCost: purchases.reduce((sum, purchase) => sum + Number(purchase.totalAmount || 0), 0),
-    expenses: expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
-    paymentsReceived: payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+    expenses: expenseTotal,
     salesCost: salesWithProfit.reduce((sum, sale) => sum + Number(sale.saleCost || 0), 0),
     salesProfit: salesWithProfit.reduce((sum, sale) => sum + Number(sale.saleProfit || 0), 0),
+    overallSale: salesRevenue + paymentsReceivedTotal + openingBalanceTotal - creditCustomerTotal - expenseTotal,
   };
 
   return {
