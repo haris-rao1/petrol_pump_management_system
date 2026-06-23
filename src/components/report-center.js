@@ -162,9 +162,6 @@ export function ReportCenter() {
             <MetricCard title="Sales Profit" value={formatCurrency(data.totals.salesProfit + data.totals.paymentsReceived)} />
              <MetricCard title="Expenses + Credit Customer" value={formatCurrency(data.totals.expenses + data.totals.creditCustomer)} />
              <MetricCard title="Purchase Cost" value={formatCurrency(data.totals.purchasesCost)} />
-           
-            
-            
             <MetricCard title="Net Profit" value={formatCurrency(data.totalProfit)} />
             <MetricCard title="Overall Sale" value={formatCurrency(data.totals.overallSale)} />
           </section>
