@@ -42,6 +42,7 @@ export function ModulePage({ resource }) {
   const [customerModalType, setCustomerModalType] = useState("receive");
   const [customerModalRecord, setCustomerModalRecord] = useState(null);
   const [customerModalAmount, setCustomerModalAmount] = useState("");
+  const [customerModalDate, setCustomerModalDate] = useState(new Date().toISOString().slice(0, 10));
   const [customerModalMethod, setCustomerModalMethod] = useState("Cash");
   const [customerModalNote, setCustomerModalNote] = useState("");
   const [customerHistoryOpen, setCustomerHistoryOpen] = useState(false);
@@ -407,6 +408,7 @@ export function ModulePage({ resource }) {
     setCustomerModalRecord(record);
     setCustomerModalType(type);
     setCustomerModalAmount("");
+    setCustomerModalDate(new Date().toISOString().slice(0, 10));
     setCustomerModalMethod("Cash");
     setCustomerModalNote("");
     setCustomerModalOpen(true);
@@ -414,6 +416,7 @@ export function ModulePage({ resource }) {
 
   async function submitCustomerPayment() {
     const amount = Number(customerModalAmount);
+    const date = customerModalDate;
     if (!Number.isFinite(amount) || amount <= 0) {
       return toast.error("Enter a valid amount");
     }
@@ -426,7 +429,7 @@ export function ModulePage({ resource }) {
         amount,
         method: customerModalMethod,
         note: customerModalNote,
-        date: new Date().toISOString().slice(0, 10),
+        date: new Date(customerModalDate).toISOString().slice(0, 10),
         type: customerModalType,
       };
       if (pumpScopedResources.has(resource) && selectedPumpId) {
@@ -464,6 +467,33 @@ export function ModulePage({ resource }) {
     } finally {
       setCustomerHistoryLoading(false);
     }
+  }
+
+  function downloadCustomerHistoryPDF() {
+    if (!customerHistoryRecord) {
+      return;
+    }
+
+    const title = `${customerHistoryRecord.name || "Customer"} History`;
+    const doc = new jsPDF();
+    doc.text(title, 14, 14);
+    doc.text(`Generated: ${formatDate(new Date())}`, 14, 22);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Date", "Type", "Amount", "Method", "Note"]],
+      body: customerHistory.map((item) => [
+        formatDate(item.date),
+        item.type || "receive",
+        formatCurrency(item.amount),
+        item.method || "N/A",
+        item.note || "-",
+      ]),
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [15, 23, 42] },
+    });
+
+    const fileName = `${String(customerHistoryRecord.name || "customer").replace(/\s+/g, "-").toLowerCase()}-history-${Date.now()}.pdf`;
+    doc.save(fileName);
   }
 
   function downloadCSV() {
@@ -971,6 +1001,15 @@ export function ModulePage({ resource }) {
                 />
               </label>
               <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Date</span>
+                <input
+                  value={customerModalDate}
+                  onChange={(event) => setCustomerModalDate(event.target.value)}
+                  type="date"
+                  className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-(--brand) dark:border-white/10 dark:bg-white/5"
+                />
+              </label>
+              <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Payment Method</span>
                 <select
                   value={customerModalMethod}
@@ -1010,7 +1049,17 @@ export function ModulePage({ resource }) {
                 <h2 className="text-2xl font-semibold">{customerHistoryRecord?.name || "Customer"} history</h2>
                 <p className="text-sm text-slate-500">Payment and credit activity</p>
               </div>
-              <button type="button" onClick={() => setCustomerHistoryOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-4 py-2 text-sm dark:bg-white/5">Close</button>
+              
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={downloadCustomerHistoryPDF}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/70 px-4 py-2 text-sm font-medium dark:bg-white/5"
+                >
+                  <Download className="h-4 w-4" /> Download PDF
+                </button>
+                <button type="button" onClick={() => setCustomerHistoryOpen(false)} className="rounded-2xl border border-white/10 bg-white/70 px-4 py-2 text-sm dark:bg-white/5">Close</button>
+              </div>
             </div>
             <div className="space-y-4">
               {customerHistoryLoading ? (
