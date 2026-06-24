@@ -78,9 +78,11 @@ export async function updateNozzleReading(nozzleId, meterReading, session, pumpI
   }
 
   nozzle.currentMeterReading = meterReading;
-  if (nozzle.nozzleName?.toLowerCase() === "open oil") { 
+  // Treat open oil and box oil as direct-sales meters — keep stored reading at 0
+  const lowerName = nozzle.nozzleName?.toLowerCase?.() || "";
+  if (lowerName.includes("open oil") || lowerName.includes("box oil")) {
     nozzle.currentMeterReading = 0;
-}
+  }
   await nozzle.save(session ? { session } : {});
   return nozzle;
 }

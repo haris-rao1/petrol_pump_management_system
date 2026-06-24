@@ -83,11 +83,11 @@ export async function getDashboardSummary(pumpId = null) {
   await connectMongo();
   const pumpObjectId = toPumpObjectId(pumpId);
 
-  const todayStart = startOfDay(new Date());
-  const todayEnd = endOfDay(new Date());
+  const yesterdayStart = startOfDay(subDays(new Date(), 1));
+  const yesterdayEnd = endOfDay(subDays(new Date(), 1));
   const monthStart = startOfMonth(new Date());
   const monthEnd = endOfMonth(new Date());
-  const chartStart = subDays(todayStart, 6);
+  const chartStart = subDays(yesterdayStart, 6);
 
   const customerQuery = pumpObjectId ? { pumpId: pumpObjectId } : {};
 
@@ -116,21 +116,21 @@ export async function getDashboardSummary(pumpId = null) {
 
  const [
   tanks,
-  todaySales,
+  yesterdaySales,
   monthSales,
-  todayPurchases,
-  todayExpenses,
+  yesterdayPurchases,
+  yesterdayExpenses,
   monthPurchases,
   monthExpenses,
-  todayPaymentsReceived,
+  yesterdayPaymentsReceived,
   monthPaymentsReceived,
   customers,
 ] = await Promise.all([
   Tank.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).lean(),
 
   getNetSales(
-    todayStart,
-    todayEnd,
+    yesterdayStart,
+    yesterdayEnd,
     pumpObjectId ? { pumpId: pumpObjectId } : {}
   ),
 
@@ -143,16 +143,16 @@ export async function getDashboardSummary(pumpId = null) {
   sumRange(
     FuelPurchase,
     "totalAmount",
-    todayStart,
-    todayEnd,
+    yesterdayStart,
+    yesterdayEnd,
     pumpObjectId ? { pumpId: pumpObjectId } : {}
   ),
 
   sumRange(
     Expense,
     "amount",
-    todayStart,
-    todayEnd,
+    yesterdayStart,
+    yesterdayEnd,
     pumpObjectId ? { pumpId: pumpObjectId } : {}
   ),
 
@@ -175,8 +175,8 @@ export async function getDashboardSummary(pumpId = null) {
   sumRange(
     Payment,
     "amount",
-    todayStart,
-    todayEnd,
+    yesterdayStart,
+    yesterdayEnd,
     pumpObjectId
       ? { pumpId: pumpObjectId, type: "receive" }
       : { type: "receive" }
@@ -198,9 +198,9 @@ export async function getDashboardSummary(pumpId = null) {
 ]);
 
   const [dailySales, monthlySales, dailyExpenses, monthlyExpenses, fuelConsumption, recentPurchases, recentExpenses, recentSales] = await Promise.all([
-    sumByDate(FuelSale, "totalSaleAmount", chartStart, todayStart, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumByDate(FuelSale, "totalSaleAmount", chartStart, yesterdayStart, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumByMonth(FuelSale, "totalSaleAmount", 6, pumpObjectId ? { pumpId: pumpObjectId } : {}),
-    sumByDate(Expense, "amount", chartStart, todayStart, pumpObjectId ? { pumpId: pumpObjectId } : {}),
+    sumByDate(Expense, "amount", chartStart, yesterdayStart, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     sumByMonth(Expense, "amount", 6, pumpObjectId ? { pumpId: pumpObjectId } : {}),
     FuelSale.aggregate([
       { $match: pumpObjectId ? { date: { $gte: monthStart, $lte: monthEnd }, pumpId: pumpObjectId } : { date: { $gte: monthStart, $lte: monthEnd } } },
@@ -214,9 +214,9 @@ export async function getDashboardSummary(pumpId = null) {
 
   // Include payments received in monthly (and optionally daily) sales figures
   const adjustedMonthSales = Number(monthSales || 0) ;
-  const adjustedTodaySales = Number(todaySales || 0) ;
+  const adjustedYesterdaySales = Number(yesterdaySales || 0) ;
 
-  const todayProfit = adjustedTodaySales - todayPurchases - todayExpenses;
+  const yesterdayProfit = adjustedYesterdaySales - yesterdayPurchases - yesterdayExpenses;
   const monthlyProfit = adjustedMonthSales - monthPurchases - monthExpenses;
   const stock = tanks.reduce((output, tank) => {
     if (!tank || !tank.fuelType) return output;
@@ -240,12 +240,12 @@ export async function getDashboardSummary(pumpId = null) {
   return {
     stock,
     totals: {
-      todaySales: adjustedTodaySales,
-      todayExpenses,
+      yesterdaySales: adjustedYesterdaySales,
+      yesterdayExpenses,
       monthSales: adjustedMonthSales,
       monthPaymentsReceived: Number(monthPaymentsReceived || 0),
-      todayPaymentsReceived: Number(todayPaymentsReceived || 0),
-      todayProfit,
+      yesterdayPaymentsReceived: Number(yesterdayPaymentsReceived || 0),
+      yesterdayProfit,
       monthlyProfit,
       creditPending: creditPending,
       recentExpensesTotal: recentExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0),

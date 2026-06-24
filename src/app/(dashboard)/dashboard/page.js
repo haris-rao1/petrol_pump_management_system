@@ -32,8 +32,8 @@ export default async function DashboardPage() {
             tone={fuelType.toLowerCase() === "petrol" ? "green" : fuelType.toLowerCase() === "diesel" ? "amber" : "blue"}
           />
         ))}
-        <StatCard title="Today's Sales" value={formatCurrency(summary.totals.todaySales)} subtitle="Sales recorded today" icon={Receipt} tone="blue" />
-        <StatCard title="Today's Expense" value={formatCurrency(summary.totals.todayExpenses)} subtitle="Expenses recorded today" icon={PiggyBank} tone="rose" />
+        <StatCard title="Yesterday's Sales" value={formatCurrency(summary.totals.yesterdaySales)} subtitle="Sales recorded yesterday" icon={Receipt} tone="blue" />
+        <StatCard title="Yesterday's Expense" value={formatCurrency(summary.totals.yesterdayExpenses)} subtitle="Expenses recorded yesterday" icon={PiggyBank} tone="rose" />
         <StatCard title="Credit Pending" value={formatCurrency(summary.totals.creditPending)} subtitle="Outstanding customer balances" icon={Wallet} tone="rose" />
       </section>
 
@@ -52,7 +52,7 @@ export default async function DashboardPage() {
               ["Monthly Sales", formatCurrency(summary.totals.monthSales)],
               ["Monthly Profit", formatCurrency(summary.totals.monthlyProfit)],
               ["Recent Expenses", formatCurrency(summary.totals.recentExpensesTotal)],
-              ["Report Date", formatDate(new Date())],
+              ["Report Date", formatDate(new Date(Date.now() - 86400000))],
             ].map(([label, value]) => (
               <div key={label} className="rounded-3xl bg-(--panel-muted) p-4 dark:bg-white/5">
                 <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>

@@ -261,6 +261,17 @@ async function createRecord(resource, body, user, session, pumpId) {
             ...item,
             date: body.date || item.date,
           };
+          // If this item is an "open oil" or "box oil" sale (non-nozzle/direct product),
+          // always force openingMeterReading to 0 because these are not sold via nozzle meters.
+          const itemName = (itemBody.nozzleName || itemBody.fuelType || "").toString().toLowerCase();
+          if (itemName.includes("open oil") || itemName.includes("box oil")) {
+            itemBody.openingMeterReading = 0;
+            // If closing is missing, set closing equal to opening to avoid negative sold liters
+            if (itemBody.closingMeterReading === undefined || itemBody.closingMeterReading === null) {
+              itemBody.closingMeterReading = 0;
+            }
+          }
+
           const fuelSaleTotals = getFuelSaleTotals(itemBody);
           const { soldLiters, fuelPricePerLiter, totalSaleAmount: itemTotal } = fuelSaleTotals;
 
@@ -370,6 +381,14 @@ async function createRecord(resource, body, user, session, pumpId) {
         body.closingMeterReading = body.openingMeterReading;
       }
 
+      // For direct product sales like open oil / box oil, force opening meter to 0
+      const bodyName = (body.nozzleName || body.fuelType || "").toString().toLowerCase();
+      if (bodyName.includes("open oil") || bodyName.includes("box oil")) {
+        body.openingMeterReading = 0;
+        if (body.closingMeterReading === undefined || body.closingMeterReading === null) {
+          body.closingMeterReading = 0;
+        }
+      }
       const fuelSaleTotals = getFuelSaleTotals(body);
       const { soldLiters, fuelPricePerLiter, totalSaleAmount, pendingAmount } = fuelSaleTotals;
       if (soldLiters > 0 && body.fuelType) {
@@ -617,6 +636,16 @@ async function updateRecord(resource, id, body, session, pumpId) {
       const openingBalance = Number(body.openingBalance || 0);
 
       for (const item of body.salesItems) {
+        // Force openingMeterReading to 0 for direct sales of open/box oil
+        const itemName = (item.nozzleName || item.fuelType || "").toString().toLowerCase();
+        console.log(itemName)
+        if (itemName.includes("open oil") || itemName.includes("box oil")|| itemName.includes("Open Oil") || itemName.includes("Box Oil")) {
+          item.openingMeterReading = 0;
+          if (item.closingMeterReading === undefined || item.closingMeterReading === null) {
+            item.closingMeterReading = 0;
+          }
+        }
+
         const fuelSaleTotals = getFuelSaleTotals(item);
         const { soldLiters, fuelPricePerLiter, totalSaleAmount: itemTotal } = fuelSaleTotals;
 
