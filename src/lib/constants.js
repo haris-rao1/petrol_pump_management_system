@@ -38,6 +38,7 @@ export const NAV_ITEMS = [
   
   { label: "Expenses", href: "/expenses", roles: ROLE_OPTIONS },
   { label: "Credit Customers", href: "/customers", roles: ROLE_OPTIONS },
+  { label: "Assets", href: "/assets", roles: [ROLES.ADMIN, ROLES.MANAGER] },
   { label: "Employees", href: "/employees", roles: [ROLES.ADMIN, ROLES.MANAGER] },
   { label: "Stock Adjustments", href: "/stock-adjustments", roles: ROLE_OPTIONS },
   { label: "Reports", href: "/reports", roles: [ROLES.ADMIN, ROLES.MANAGER] },
