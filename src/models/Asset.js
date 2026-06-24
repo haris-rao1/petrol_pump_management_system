@@ -1,4 +1,4 @@
-﻿import mongoose from "mongoose";
+import mongoose from "mongoose";
 
 // Business Asset schema — independent asset inventory for the company.
 const AssetSchema = new mongoose.Schema({
@@ -11,10 +11,9 @@ const AssetSchema = new mongoose.Schema({
   currentValue: { type: Number, default: 0 },
   location: { type: String, default: "" },
   status: { type: String, default: "active" },
-  documents: [{ type: String }],
+  documents: [{ type: String }], // optional URLs or references to separate file storage
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   createdAt: { type: Date, default: Date.now },
 });
 
-const Asset = mongoose.models.Asset || mongoose.model("Asset", AssetSchema);
-export default Asset;
+export default mongoose.models.Asset || mongoose.model("Asset", AssetSchema);
