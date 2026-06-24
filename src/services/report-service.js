@@ -1,4 +1,4 @@
-import { endOfDay, startOfDay } from "date-fns";
+import { endOfDay, startOfDay, subDays } from "date-fns";
 import { connectMongo } from "@/lib/mongodb";
 import FuelSale from "@/models/FuelSale";
 import FuelPurchase from "@/models/FuelPurchase";
@@ -11,10 +11,11 @@ export async function getReportData(filters = {}, pumpId = null) {
   await connectMongo();
   const pumpObjectId = toPumpObjectId(pumpId);
 
+  const yesterday = subDays(new Date(), 1);
   const startDate = filters.startDate
     ? startOfDay(new Date(filters.startDate))
-    : startOfDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const endDate = filters.endDate ? endOfDay(new Date(filters.endDate)) : endOfDay(new Date());
+    : startOfDay(yesterday);
+  const endDate = filters.endDate ? endOfDay(new Date(filters.endDate)) : endOfDay(yesterday);
 
   const dateQuery = { date: { $gte: startDate, $lte: endDate } };
   const saleQuery = { ...dateQuery };
@@ -101,12 +102,8 @@ export async function getReportData(filters = {}, pumpId = null) {
   const paymentsReceivedTotal = payments.reduce((sum, payment) => payment.type?.toLowerCase() === "receive" ? sum + Number(payment.amount || 0) : sum, 0);
   const paymentsCreditTotal = payments.reduce((sum, payment) => payment.type?.toLowerCase() === "credit" ? sum + Number(payment.amount || 0) : sum, 0);
   const customerCreditFallback = customers.reduce((sum, customer) => {
-    const createdAt = customer.createdAt ? new Date(customer.createdAt) : null;
-    const updatedAt = customer.updatedAt ? new Date(customer.updatedAt) : null;
-    const inRange =
-      (createdAt && createdAt >= startDate && createdAt <= endDate) ||
-      (updatedAt && updatedAt >= startDate && updatedAt <= endDate);
-    if (!inRange) return sum;
+    const creditDate = customer.creditDate ? new Date(customer.creditDate) : null;
+    if (!creditDate || creditDate < startDate || creditDate > endDate) return sum;
     return sum + Math.max(Number(customer.pendingBalance || 0), 0);
   }, 0);
   const creditCustomerTotal = paymentsCreditTotal > 0 ? paymentsCreditTotal : customerCreditFallback;

@@ -7,8 +7,10 @@ import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 import { formatCurrency, formatDate, toCsvValue } from "@/utils/format";
 
+const yesterdayString = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
 export function ReportCenter() {
-  const [filters, setFilters] = useState({ startDate: "", endDate: "", fuelType: "", section: "all" });
+  const [filters, setFilters] = useState({ startDate: yesterdayString, endDate: yesterdayString, fuelType: "", section: "all" });
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 

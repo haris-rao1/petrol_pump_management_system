@@ -98,6 +98,7 @@ export const moduleSchemas = {
     address: z.string().optional().default(""),
     vehicleNumber: z.string().optional().default(""),
     companyName: z.string().optional().default(""),
+    creditDate: z.string().optional().default(""),
     pendingBalance: z.coerce.number().default(0),
   }),
   payments: z.object({
@@ -218,6 +219,7 @@ export const resourceFormDefaults = {
     address: "",
     vehicleNumber: "",
     companyName: "",
+    creditDate: "",
     pendingBalance: 0,
   },
   payments: {

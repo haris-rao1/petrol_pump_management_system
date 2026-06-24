@@ -188,6 +188,7 @@ export const moduleConfigs = {
       { name: "address", label: "Address", type: "textarea" },
       { name: "vehicleNumber", label: "Vehicle Number", type: "text" },
       { name: "companyName", label: "Company Name", type: "text" },
+      { name: "creditDate", label: "Credit Date", type: "date" },
       { name: "pendingBalance", label: "Pending Balance", type: "number" },
     ],
     columns: [
@@ -195,6 +196,7 @@ export const moduleConfigs = {
       { key: "phone", label: "Phone" },
       { key: "vehicleNumber", label: "Vehicle" },
       { key: "companyName", label: "Company" },
+      { key: "creditDate", label: "Credit Date", formatter: formatDate },
       { key: "pendingBalance", label: "Pending", formatter: formatCurrency },
     ],
   },

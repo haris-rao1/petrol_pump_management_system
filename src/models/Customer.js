@@ -9,6 +9,7 @@ const customerSchema = new mongoose.Schema(
     address: { type: String, default: "" },
     vehicleNumber: { type: String, default: "" },
     companyName: { type: String, default: "" },
+    creditDate: { type: Date, default: null },
     pendingBalance: { type: Number, default: 0 },
   },
   { timestamps: true },
