@@ -92,29 +92,29 @@ export async function getDashboardSummary(pumpId = null) {
   const customerQuery = pumpObjectId ? { pumpId: pumpObjectId } : {};
 
   const getNetSales = async (startDate, endDate, filter = {}) => {
-  const result = await FuelSale.aggregate([
-    {
-      $match: {
-        createdAt: { $gte: startDate, $lte: endDate },
-        ...filter,
+    const result = await FuelSale.aggregate([
+      {
+        $match: {
+          date: { $gte: startDate, $lte: endDate },
+          ...filter,
+        },
       },
-    },
-    {
-      $group: {
-        _id: null,
-        total: {
-          $sum: {
-            $subtract: ["$totalSaleAmount", "$openingBalance"],
+      {
+        $group: {
+          _id: null,
+          total: {
+            $sum: {
+              $subtract: ["$totalSaleAmount", "$openingBalance"],
+            },
           },
         },
       },
-    },
-  ]);
+    ]);
 
-  return result[0]?.total || 0;
-};
+    return result[0]?.total || 0;
+  };
 
- const [
+const [
   tanks,
   yesterdaySales,
   monthSales,
@@ -127,19 +127,19 @@ export async function getDashboardSummary(pumpId = null) {
   customers,
 ] = await Promise.all([
   Tank.find(pumpObjectId ? { pumpId: pumpObjectId } : {}).lean(),
-
+  
   getNetSales(
     yesterdayStart,
     yesterdayEnd,
     pumpObjectId ? { pumpId: pumpObjectId } : {}
   ),
-
+  
   getNetSales(
     monthStart,
     monthEnd,
     pumpObjectId ? { pumpId: pumpObjectId } : {}
   ),
-
+  
   sumRange(
     FuelPurchase,
     "totalAmount",
@@ -147,7 +147,7 @@ export async function getDashboardSummary(pumpId = null) {
     yesterdayEnd,
     pumpObjectId ? { pumpId: pumpObjectId } : {}
   ),
-
+  
   sumRange(
     Expense,
     "amount",
@@ -195,7 +195,7 @@ export async function getDashboardSummary(pumpId = null) {
   Customer.find(customerQuery)
     .select("pendingBalance")
     .lean(),
-]);
+  ]);
 
   const [dailySales, monthlySales, dailyExpenses, monthlyExpenses, fuelConsumption, recentPurchases, recentExpenses, recentSales] = await Promise.all([
     sumByDate(FuelSale, "totalSaleAmount", chartStart, yesterdayStart, pumpObjectId ? { pumpId: pumpObjectId } : {}),
